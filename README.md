@@ -1,2 +1,100 @@
 # mpipe
 A set of LLM-based command line tools
+
+## `mpask`
+
+Minimal Unix CLI to send one prompt to an LLM provider and print raw text output.
+
+### Prompt input
+
+- `mpask "question"` uses the CLI argument as prompt.
+- `echo "question" | mpask` reads from stdin when no prompt argument is passed.
+- If both are present, the argument takes precedence.
+- `--prompt "..."` prepends a preprompt before the main prompt.
+- `--postprompt "..."` appends text after the main prompt.
+- `--system "..."` adds a system message sent before the user message.
+- When used, segments are joined as `preprompt\n\nmain_prompt\n\npostprompt` (missing segments are skipped).
+
+When `--system` is provided, `mpask` sends two chat messages: `system` then `user`.
+
+### Provider and model selection
+
+- Provider resolution order: `--provider` > `MP_PROVIDER` > default `openai`
+- Supported providers: `openai`, `fireworks`
+- Model resolution order: `--model` > `MP_MODEL`
+- If no model is provided, `mpask` exits with an explicit error.
+
+### Generation options
+
+- `--temperature <float>` (range `[0.0, 2.0]`)
+- `--max-tokens <int>` (must be `> 0`)
+- `--timeout <secs>` (must be `> 0`)
+- `--retries <n>` (number of extra retry attempts)
+- `--retry-delay <ms>` (base delay, must be `> 0`)
+- Environment fallbacks:
+  - `MP_TEMPERATURE`
+  - `MP_MAX_TOKENS`
+  - `MP_TIMEOUT`
+  - `MP_RETRIES`
+  - `MP_RETRY_DELAY`
+
+If `temperature`, `max-tokens`, or `timeout` are missing, they are not sent and the provider/client default is used. Retry defaults are `retries=0` and `retry-delay=500ms`.
+
+Retries use exponential backoff: `retry-delay * 2^attempt`, capped at 30 seconds.
+
+### Output format
+
+- `--output <text|json>` controls stdout format (`text` by default)
+- `--json` is a shortcut for `--output json`
+- `--show-usage` prints token usage and latency on stderr
+
+`text` prints only the raw answer.
+
+`json` prints one JSON object with:
+
+- `provider`
+- `model`
+- `answer`
+- `latency_ms`
+- `request` (`temperature`, `max_tokens`, `timeout_secs`, `retries`, `retry_delay_ms`)
+- `usage` (token counts when available, otherwise `null`)
+
+When `--show-usage` is enabled, `mpask` prints either token usage + latency or `usage: unavailable` to stderr.
+
+### Debug modes
+
+- `--verbose` prints request diagnostics to stderr (provider, endpoint, resolved options, prompt source, message counts)
+- `--dry-run` prints the final request payload as JSON to stdout and does not call any API
+
+`--dry-run` works without API keys. Authorization is always redacted in dry-run output.
+
+### API keys
+
+- OpenAI: `OPENAI_API_KEY`
+- Fireworks: `FIREWORKS_API_KEY`
+
+If the required key is missing for the selected provider, `mpask` prints an explicit error to stderr and exits with a non-zero code.
+
+### Test commands
+
+Fireworks (recommended test model):
+
+```bash
+export MP_PROVIDER=fireworks
+export MP_MODEL="accounts/fireworks/models/kimi-k2-instruct-0905"
+export FIREWORKS_API_KEY="..."
+echo "2+2?" | cargo run --quiet --bin mpask
+```
+
+Equivalent explicit flags:
+
+```bash
+echo "2+2?" | cargo run --quiet --bin mpask -- --provider fireworks --model "accounts/fireworks/models/kimi-k2-instruct-0905"
+```
+
+OpenAI example:
+
+```bash
+export OPENAI_API_KEY="..."
+echo "2+2?" | cargo run --quiet --bin mpask -- --provider openai --model "gpt-4o-mini"
+```
