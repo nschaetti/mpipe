@@ -23,6 +23,21 @@ fn mpask_cmd() -> Command {
     cmd
 }
 
+fn mpipe_cmd() -> Command {
+    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("mpipe"));
+    cmd.env_remove("MP_PROVIDER")
+        .env_remove("MP_MODEL")
+        .env_remove("MP_TEMPERATURE")
+        .env_remove("MP_MAX_TOKENS")
+        .env_remove("MP_TIMEOUT")
+        .env_remove("MP_RETRIES")
+        .env_remove("MP_RETRY_DELAY")
+        .env_remove("MP_CONFIG")
+        .env_remove("OPENAI_API_KEY")
+        .env_remove("FIREWORKS_API_KEY");
+    cmd
+}
+
 fn unique_temp_path(label: &str) -> PathBuf {
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -393,6 +408,35 @@ fn profile_env_and_cli_precedence_is_respected() {
 fn version_prints_build_metadata() {
     mpask_cmd()
         .arg("--version")
+        .assert()
+        .success()
+        .stdout(contains("commit:").and(contains("built:")));
+}
+
+#[test]
+fn mpipe_ask_dry_run_matches_mpask_output_shape() {
+    let assert = mpipe_cmd()
+        .args([
+            "ask",
+            "--provider",
+            "fireworks",
+            "--model",
+            FIREWORKS_TEST_MODEL,
+            "--dry-run",
+            "hello",
+        ])
+        .assert()
+        .success();
+
+    let body = parse_stdout_json(&assert.get_output().stdout);
+    assert_eq!(body["provider"], Value::String("fireworks".to_string()));
+    assert_eq!(body["output"], Value::String("text".to_string()));
+}
+
+#[test]
+fn mpipe_ask_version_prints_metadata() {
+    mpipe_cmd()
+        .args(["ask", "--version"])
         .assert()
         .success()
         .stdout(contains("commit:").and(contains("built:")));
