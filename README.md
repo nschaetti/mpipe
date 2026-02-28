@@ -1,3 +1,5 @@
+![mpipe banner](images/banner/banner_readme.png)
+
 # mpipe
 A set of LLM-based command line tools
 
