@@ -1,4 +1,5 @@
 use assert_cmd::Command;
+use predicates::prelude::PredicateBooleanExt;
 use predicates::str::contains;
 use serde_json::Value;
 use std::fs;
@@ -240,4 +241,159 @@ fn save_writes_and_overwrites_output_file() {
     let second = fs::read_to_string(&output_path).expect("second output file should exist");
     assert!(second.contains("\"content\":\"second\""));
     assert!(!second.contains("\"content\":\"first\""));
+}
+
+#[test]
+fn verbose_does_not_leak_api_key() {
+    let secret = "fireworks-secret-value";
+
+    mpask_cmd()
+        .env("FIREWORKS_API_KEY", secret)
+        .args([
+            "--provider",
+            "fireworks",
+            "--model",
+            FIREWORKS_TEST_MODEL,
+            "--dry-run",
+            "--verbose",
+            "hello",
+        ])
+        .assert()
+        .success()
+        .stderr(contains("api_key_present=true").and(contains(secret).not()));
+}
+
+#[test]
+fn json_flag_overrides_output_text() {
+    let assert = mpask_cmd()
+        .args([
+            "--provider",
+            "fireworks",
+            "--model",
+            FIREWORKS_TEST_MODEL,
+            "--dry-run",
+            "--output",
+            "text",
+            "--json",
+            "hello",
+        ])
+        .assert()
+        .success();
+
+    let body = parse_stdout_json(&assert.get_output().stdout);
+    assert_eq!(body["output"], Value::String("json".to_string()));
+}
+
+#[test]
+fn profile_file_missing_returns_explicit_error() {
+    let config_path = unique_temp_path("missing-config");
+
+    mpask_cmd()
+        .env("MP_CONFIG", &config_path)
+        .args(["--profile", "fw", "hello"])
+        .assert()
+        .failure()
+        .stderr(contains("Failed to read config file"));
+}
+
+#[test]
+fn invalid_profile_toml_returns_parse_error() {
+    let config_path = unique_temp_path("invalid-toml");
+    fs::write(&config_path, "[profiles.bad\nprovider = \"openai\"")
+        .expect("config should be writable");
+
+    mpask_cmd()
+        .env("MP_CONFIG", &config_path)
+        .args(["--profile", "bad", "hello"])
+        .assert()
+        .failure()
+        .stderr(contains("Failed to parse config file"));
+}
+
+#[test]
+fn profile_not_found_returns_error() {
+    let config_path = unique_temp_path("profile-not-found");
+    fs::write(&config_path, "[profiles.fw]\nprovider = \"fireworks\"\n")
+        .expect("config should be writable");
+
+    mpask_cmd()
+        .env("MP_CONFIG", &config_path)
+        .args(["--profile", "missing", "hello"])
+        .assert()
+        .failure()
+        .stderr(contains("Profile 'missing' not found"));
+}
+
+#[test]
+fn invalid_profile_provider_returns_error() {
+    let config_path = unique_temp_path("invalid-provider");
+    fs::write(
+        &config_path,
+        "[profiles.bad]\nprovider = \"unknown\"\nmodel = \"m\"\n",
+    )
+    .expect("config should be writable");
+
+    mpask_cmd()
+        .env("MP_CONFIG", &config_path)
+        .args(["--profile", "bad", "hello"])
+        .assert()
+        .failure()
+        .stderr(contains("Invalid profile provider 'unknown'"));
+}
+
+#[test]
+fn invalid_profile_output_returns_error() {
+    let config_path = unique_temp_path("invalid-output");
+    fs::write(
+        &config_path,
+        "[profiles.bad]\nprovider = \"openai\"\nmodel = \"m\"\noutput = \"yaml\"\n",
+    )
+    .expect("config should be writable");
+
+    mpask_cmd()
+        .env("MP_CONFIG", &config_path)
+        .args(["--profile", "bad", "hello"])
+        .assert()
+        .failure()
+        .stderr(contains("Invalid profile output 'yaml'"));
+}
+
+#[test]
+fn profile_env_and_cli_precedence_is_respected() {
+    let config_path = unique_temp_path("precedence");
+    fs::write(
+        &config_path,
+        "[profiles.fw]\nprovider = \"fireworks\"\nmodel = \"profile-model\"\n",
+    )
+    .expect("config should be writable");
+
+    let assert = mpask_cmd()
+        .env("MP_CONFIG", &config_path)
+        .env("MP_PROVIDER", "openai")
+        .env("MP_MODEL", "env-model")
+        .args([
+            "--profile",
+            "fw",
+            "--provider",
+            "fireworks",
+            "--model",
+            "cli-model",
+            "--dry-run",
+            "hello",
+        ])
+        .assert()
+        .success();
+
+    let body = parse_stdout_json(&assert.get_output().stdout);
+    assert_eq!(body["provider"], Value::String("fireworks".to_string()));
+    assert_eq!(body["model"], Value::String("cli-model".to_string()));
+}
+
+#[test]
+fn version_prints_build_metadata() {
+    mpask_cmd()
+        .arg("--version")
+        .assert()
+        .success()
+        .stdout(contains("commit:").and(contains("built:")));
 }

@@ -11,8 +11,15 @@ use mpipe::rchain::provider::{self, AskOptions, ChatMessage, Provider};
 use serde::Serialize;
 
 #[derive(Debug, Parser)]
-#[command(name = "mpask", about = "Ask a question to an LLM provider")]
+#[command(
+    name = "mpask",
+    about = "Ask a question to an LLM provider",
+    disable_version_flag = true
+)]
 struct Cli {
+    #[arg(short = 'V', long = "version", action = clap::ArgAction::SetTrue)]
+    version: bool,
+
     #[arg(long)]
     profile: Option<String>,
 
@@ -168,6 +175,12 @@ async fn main() {
 
 async fn run() -> Result<(), String> {
     let cli = Cli::parse();
+
+    if cli.version {
+        println!("{}", render_version());
+        return Ok(());
+    }
+
     let profile = resolve_profile(cli.profile.as_deref())?;
 
     let provider = resolve_provider(cli.provider, &profile)?;
@@ -695,4 +708,10 @@ fn log_verbose(
         options.retries,
         options.retry_delay_ms
     );
+}
+
+fn render_version() -> String {
+    let commit = option_env!("MP_GIT_SHA").unwrap_or("unknown");
+    let built = option_env!("MP_BUILD_TS").unwrap_or("unknown");
+    format!("{}\ncommit: {commit}\nbuilt: {built}", env!("CARGO_PKG_VERSION"))
 }

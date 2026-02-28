@@ -92,6 +92,7 @@ When `--show-usage` is enabled, `mpask` prints either token usage + latency or `
 
 - `--verbose` prints request diagnostics to stderr (provider, endpoint, resolved options, prompt source, message counts)
 - `--dry-run` prints the final request payload as JSON to stdout and does not call any API
+- `--version` prints version, commit, and build timestamp metadata
 
 `--dry-run` works without API keys. Authorization is always redacted in dry-run output.
 
