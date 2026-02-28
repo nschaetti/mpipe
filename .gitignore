@@ -24,3 +24,7 @@ target
 # Added by cargo
 
 /target
+
+# Local workspace files
+.idea/
+flow_matching.md
