@@ -80,3 +80,34 @@ fn retry_delay(attempt: u32, base_ms: u64) -> Duration {
     let delay_ms = base_ms.saturating_mul(factor).min(30_000);
     Duration::from_millis(delay_ms)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{is_retryable_status, retry_delay};
+    use reqwest::StatusCode;
+    use std::time::Duration;
+
+    #[test]
+    fn retry_delay_uses_exponential_backoff() {
+        assert_eq!(retry_delay(0, 200), Duration::from_millis(200));
+        assert_eq!(retry_delay(1, 200), Duration::from_millis(400));
+        assert_eq!(retry_delay(2, 200), Duration::from_millis(800));
+    }
+
+    #[test]
+    fn retry_delay_caps_at_thirty_seconds() {
+        assert_eq!(retry_delay(10, 500), Duration::from_millis(30_000));
+        assert_eq!(retry_delay(30, 5_000), Duration::from_millis(30_000));
+    }
+
+    #[test]
+    fn retryable_statuses_match_policy() {
+        assert!(is_retryable_status(StatusCode::TOO_MANY_REQUESTS));
+        assert!(is_retryable_status(StatusCode::INTERNAL_SERVER_ERROR));
+        assert!(is_retryable_status(StatusCode::BAD_GATEWAY));
+
+        assert!(!is_retryable_status(StatusCode::BAD_REQUEST));
+        assert!(!is_retryable_status(StatusCode::UNAUTHORIZED));
+        assert!(!is_retryable_status(StatusCode::NOT_FOUND));
+    }
+}
