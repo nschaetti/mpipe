@@ -24,6 +24,31 @@ When `--system` is provided, `mpask` sends two chat messages: `system` then `use
 - Model resolution order: `--model` > `MP_MODEL`
 - If no model is provided, `mpask` exits with an explicit error.
 
+### Profiles
+
+- `--profile <name>` loads settings from a config profile.
+- No implicit profile is loaded when `--profile` is not provided.
+- Config path resolution:
+  - `MP_CONFIG` if set
+  - otherwise `${XDG_CONFIG_HOME:-~/.config}/mpipe/config.toml`
+- Resolution priority for overlapping values is:
+  - CLI flags > environment variables > profile > built-in defaults
+
+Example config file:
+
+```toml
+[profiles.fireworks]
+provider = "fireworks"
+model = "accounts/fireworks/models/kimi-k2-instruct-0905"
+temperature = 0.2
+timeout = 15
+retries = 2
+retry_delay = 300
+output = "json"
+show_usage = true
+system = "You are concise"
+```
+
 ### Generation options
 
 - `--temperature <float>` (range `[0.0, 2.0]`)
@@ -47,6 +72,8 @@ Retries use exponential backoff: `retry-delay * 2^attempt`, capped at 30 seconds
 - `--output <text|json>` controls stdout format (`text` by default)
 - `--json` is a shortcut for `--output json`
 - `--show-usage` prints token usage and latency on stderr
+- `--save <path>` writes the final stdout payload to a file (overwrite mode)
+- `--fail-on-empty` returns an error if the model answer is empty (applies in both text and json modes)
 
 `text` prints only the raw answer.
 

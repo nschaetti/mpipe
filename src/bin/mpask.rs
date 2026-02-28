@@ -1,15 +1,21 @@
 use std::env;
+use std::fs;
 use std::io::{self, IsTerminal, Read};
+use std::path::{Path, PathBuf};
 use std::process;
-use std::time::Instant;
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use clap::{Parser, ValueEnum};
+use mpipe::config::{self, ProfileConfig};
 use mpipe::rchain::provider::{self, AskOptions, ChatMessage, Provider};
 use serde::Serialize;
 
 #[derive(Debug, Parser)]
 #[command(name = "mpask", about = "Ask a question to an LLM provider")]
 struct Cli {
+    #[arg(long)]
+    profile: Option<String>,
+
     #[arg(long, value_enum)]
     provider: Option<ProviderArg>,
 
@@ -45,6 +51,12 @@ struct Cli {
 
     #[arg(long)]
     dry_run: bool,
+
+    #[arg(long)]
+    fail_on_empty: bool,
+
+    #[arg(long)]
+    save: Option<PathBuf>,
 
     #[arg(long)]
     system: Option<String>,
@@ -156,14 +168,19 @@ async fn main() {
 
 async fn run() -> Result<(), String> {
     let cli = Cli::parse();
-    let provider = resolve_provider(cli.provider)?;
-    let model = resolve_model(cli.model)?;
-    let temperature = resolve_temperature(cli.temperature)?;
-    let max_tokens = resolve_max_tokens(cli.max_tokens)?;
-    let timeout_secs = resolve_timeout(cli.timeout)?;
-    let retries = resolve_retries(cli.retries)?;
-    let retry_delay_ms = resolve_retry_delay(cli.retry_delay)?;
-    let output_format = resolve_output_format(cli.output, cli.json);
+    let profile = resolve_profile(cli.profile.as_deref())?;
+
+    let provider = resolve_provider(cli.provider, &profile)?;
+    let model = resolve_model(cli.model, &profile)?;
+    let temperature = resolve_temperature(cli.temperature, &profile)?;
+    let max_tokens = resolve_max_tokens(cli.max_tokens, &profile)?;
+    let timeout_secs = resolve_timeout(cli.timeout, &profile)?;
+    let retries = resolve_retries(cli.retries, &profile)?;
+    let retry_delay_ms = resolve_retry_delay(cli.retry_delay, &profile)?;
+    let output_format = resolve_output_format(cli.output, cli.json, &profile)?;
+    let show_usage = resolve_show_usage(cli.show_usage, &profile);
+    let system = resolve_system(cli.system, &profile);
+
     let options = AskOptions {
         temperature,
         max_tokens,
@@ -178,7 +195,7 @@ async fn run() -> Result<(), String> {
         &main_prompt.text,
         cli.postprompt.as_deref(),
     );
-    let messages = build_messages(non_empty(cli.system.as_deref()), &prompt);
+    let messages = build_messages(non_empty(system.as_deref()), &prompt);
 
     if cli.verbose {
         log_verbose(
@@ -186,7 +203,7 @@ async fn run() -> Result<(), String> {
             &model,
             output_format,
             cli.dry_run,
-            cli.show_usage,
+            show_usage,
             main_prompt.source,
             &messages,
             &options,
@@ -208,13 +225,19 @@ async fn run() -> Result<(), String> {
                 retry_delay_ms,
             },
             output: output_format.as_str().to_string(),
-            show_usage: cli.show_usage,
+            show_usage,
             authorization: "Bearer ***REDACTED***".to_string(),
         };
-        let output = serde_json::to_string(&output)
-            .map_err(|err| format!("Failed to serialize dry-run output: {err}"))?;
-        println!("{output}");
-        if cli.show_usage {
+        let rendered = format!(
+            "{}\n",
+            serde_json::to_string(&output)
+                .map_err(|err| format!("Failed to serialize dry-run output: {err}"))?
+        );
+        print!("{rendered}");
+        if let Some(path) = &cli.save {
+            write_output(path, &rendered)?;
+        }
+        if show_usage {
             eprintln!("usage: unavailable latency_ms=0 (dry-run)");
         }
         return Ok(());
@@ -226,20 +249,22 @@ async fn run() -> Result<(), String> {
         .map_err(|err| err.to_string())?;
     let latency_ms = start.elapsed().as_millis();
 
+    if cli.fail_on_empty && response.content.trim().is_empty() {
+        return Err("Model response is empty and --fail-on-empty is enabled.".to_string());
+    }
+
     let usage = response.usage.map(|usage| UsageData {
         prompt_tokens: usage.prompt_tokens,
         completion_tokens: usage.completion_tokens,
         total_tokens: usage.total_tokens,
     });
 
-    if cli.show_usage {
+    if show_usage {
         print_usage(&usage, latency_ms);
     }
 
-    match output_format {
-        OutputFormat::Text => {
-            print!("{}", response.content);
-        }
+    let rendered = match output_format {
+        OutputFormat::Text => response.content,
         OutputFormat::Json => {
             let output = JsonOutput {
                 provider: provider.as_str().to_string(),
@@ -255,13 +280,83 @@ async fn run() -> Result<(), String> {
                 },
                 usage: usage.as_ref().and_then(json_usage),
             };
-            let output = serde_json::to_string(&output)
-                .map_err(|err| format!("Failed to serialize JSON output: {err}"))?;
-            println!("{output}");
+            format!(
+                "{}\n",
+                serde_json::to_string(&output)
+                    .map_err(|err| format!("Failed to serialize JSON output: {err}"))?
+            )
         }
+    };
+
+    print!("{rendered}");
+    if let Some(path) = &cli.save {
+        write_output(path, &rendered)?;
     }
 
     Ok(())
+}
+
+fn write_output(path: &Path, content: &str) -> Result<(), String> {
+    if let Some(parent) = path.parent() {
+        if !parent.as_os_str().is_empty() {
+            fs::create_dir_all(parent).map_err(|err| {
+                format!(
+                    "Failed to create output directory '{}': {err}",
+                    parent.display()
+                )
+            })?;
+        }
+    }
+
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    let tmp_name = format!(
+        ".{}.tmp.{}.{}",
+        path.file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("mpask"),
+        process::id(),
+        now
+    );
+    let tmp_path = path.with_file_name(tmp_name);
+
+    fs::write(&tmp_path, content)
+        .map_err(|err| format!("Failed to write output file '{}': {err}", tmp_path.display()))?;
+
+    if let Err(err) = fs::rename(&tmp_path, path) {
+        let _ = fs::remove_file(&tmp_path);
+        return Err(format!(
+            "Failed to replace output file '{}': {err}",
+            path.display()
+        ));
+    }
+
+    Ok(())
+}
+
+fn resolve_profile(profile_name: Option<&str>) -> Result<ProfileConfig, String> {
+    match profile_name {
+        Some(name) => config::load_profile(name),
+        None => Ok(ProfileConfig::default()),
+    }
+}
+
+fn resolve_show_usage(cli_show_usage: bool, profile: &ProfileConfig) -> bool {
+    if cli_show_usage {
+        return true;
+    }
+
+    profile.show_usage.unwrap_or(false)
+}
+
+fn resolve_system(cli_system: Option<String>, profile: &ProfileConfig) -> Option<String> {
+    if cli_system.is_some() {
+        return cli_system;
+    }
+
+    profile.system.clone()
 }
 
 fn json_usage(usage: &UsageData) -> Option<JsonUsage> {
@@ -342,7 +437,7 @@ fn compose_prompt(preprompt: Option<&str>, main_prompt: &str, postprompt: Option
     parts.join("\n\n")
 }
 
-fn resolve_provider(cli_provider: Option<ProviderArg>) -> Result<Provider, String> {
+fn resolve_provider(cli_provider: Option<ProviderArg>, profile: &ProfileConfig) -> Result<Provider, String> {
     if let Some(provider) = cli_provider {
         return Ok(match provider {
             ProviderArg::Openai => Provider::Openai,
@@ -350,22 +445,33 @@ fn resolve_provider(cli_provider: Option<ProviderArg>) -> Result<Provider, Strin
         });
     }
 
-    if let Ok(provider) = env::var("MP_PROVIDER") {
-        return match provider.trim().to_ascii_lowercase().as_str() {
-            "openai" => Ok(Provider::Openai),
-            "fireworks" => Ok(Provider::Fireworks),
-            other => Err(format!(
-                "Invalid MP_PROVIDER '{other}'. Supported values: openai, fireworks."
-            )),
-        };
+    if let Ok(raw) = env::var("MP_PROVIDER") {
+        return parse_provider_value(&raw, "MP_PROVIDER");
+    }
+
+    if let Some(provider) = &profile.provider {
+        return parse_provider_value(provider, "profile provider");
     }
 
     Ok(Provider::Openai)
 }
 
-fn resolve_model(cli_model: Option<String>) -> Result<String, String> {
+fn parse_provider_value(raw: &str, source: &str) -> Result<Provider, String> {
+    match raw.trim().to_ascii_lowercase().as_str() {
+        "openai" => Ok(Provider::Openai),
+        "fireworks" => Ok(Provider::Fireworks),
+        other => Err(format!(
+            "Invalid {source} '{other}'. Supported values: openai, fireworks."
+        )),
+    }
+}
+
+fn resolve_model(cli_model: Option<String>, profile: &ProfileConfig) -> Result<String, String> {
     if let Some(model) = cli_model {
-        return Ok(model);
+        let trimmed = model.trim();
+        if !trimmed.is_empty() {
+            return Ok(trimmed.to_string());
+        }
     }
 
     if let Ok(model) = env::var("MP_MODEL") {
@@ -375,20 +481,29 @@ fn resolve_model(cli_model: Option<String>) -> Result<String, String> {
         }
     }
 
+    if let Some(model) = &profile.model {
+        let trimmed = model.trim();
+        if !trimmed.is_empty() {
+            return Ok(trimmed.to_string());
+        }
+    }
+
     Err("No model provided. Use --model or set MP_MODEL.".to_string())
 }
 
-fn resolve_temperature(cli_temperature: Option<f32>) -> Result<Option<f32>, String> {
+fn resolve_temperature(
+    cli_temperature: Option<f32>,
+    profile: &ProfileConfig,
+) -> Result<Option<f32>, String> {
     let temperature = if let Some(temperature) = cli_temperature {
         Some(temperature)
     } else if let Ok(raw) = env::var("MP_TEMPERATURE") {
-        let parsed = raw
-            .trim()
-            .parse::<f32>()
-            .map_err(|_| format!("Invalid MP_TEMPERATURE '{raw}'. Must be a float in [0.0, 2.0]."))?;
+        let parsed = raw.trim().parse::<f32>().map_err(|_| {
+            format!("Invalid MP_TEMPERATURE '{raw}'. Must be a float in [0.0, 2.0].")
+        })?;
         Some(parsed)
     } else {
-        None
+        profile.temperature
     };
 
     if let Some(value) = temperature {
@@ -402,7 +517,10 @@ fn resolve_temperature(cli_temperature: Option<f32>) -> Result<Option<f32>, Stri
     Ok(temperature)
 }
 
-fn resolve_max_tokens(cli_max_tokens: Option<u32>) -> Result<Option<u32>, String> {
+fn resolve_max_tokens(
+    cli_max_tokens: Option<u32>,
+    profile: &ProfileConfig,
+) -> Result<Option<u32>, String> {
     let max_tokens = if let Some(max_tokens) = cli_max_tokens {
         Some(max_tokens)
     } else if let Ok(raw) = env::var("MP_MAX_TOKENS") {
@@ -412,7 +530,7 @@ fn resolve_max_tokens(cli_max_tokens: Option<u32>) -> Result<Option<u32>, String
             .map_err(|_| format!("Invalid MP_MAX_TOKENS '{raw}'. Must be an integer > 0."))?;
         Some(parsed)
     } else {
-        None
+        profile.max_tokens
     };
 
     if let Some(value) = max_tokens {
@@ -424,7 +542,7 @@ fn resolve_max_tokens(cli_max_tokens: Option<u32>) -> Result<Option<u32>, String
     Ok(max_tokens)
 }
 
-fn resolve_timeout(cli_timeout: Option<u64>) -> Result<Option<u64>, String> {
+fn resolve_timeout(cli_timeout: Option<u64>, profile: &ProfileConfig) -> Result<Option<u64>, String> {
     let timeout = if let Some(timeout) = cli_timeout {
         Some(timeout)
     } else if let Ok(raw) = env::var("MP_TIMEOUT") {
@@ -434,7 +552,7 @@ fn resolve_timeout(cli_timeout: Option<u64>) -> Result<Option<u64>, String> {
             .map_err(|_| format!("Invalid MP_TIMEOUT '{raw}'. Must be an integer > 0."))?;
         Some(parsed)
     } else {
-        None
+        profile.timeout
     };
 
     if let Some(value) = timeout {
@@ -446,7 +564,7 @@ fn resolve_timeout(cli_timeout: Option<u64>) -> Result<Option<u64>, String> {
     Ok(timeout)
 }
 
-fn resolve_retries(cli_retries: Option<u32>) -> Result<u32, String> {
+fn resolve_retries(cli_retries: Option<u32>, profile: &ProfileConfig) -> Result<u32, String> {
     if let Some(retries) = cli_retries {
         return Ok(retries);
     }
@@ -458,10 +576,10 @@ fn resolve_retries(cli_retries: Option<u32>) -> Result<u32, String> {
             .map_err(|_| format!("Invalid MP_RETRIES '{raw}'. Must be an integer >= 0."));
     }
 
-    Ok(0)
+    Ok(profile.retries.unwrap_or(0))
 }
 
-fn resolve_retry_delay(cli_retry_delay: Option<u64>) -> Result<u64, String> {
+fn resolve_retry_delay(cli_retry_delay: Option<u64>, profile: &ProfileConfig) -> Result<u64, String> {
     let retry_delay = if let Some(retry_delay) = cli_retry_delay {
         retry_delay
     } else if let Ok(raw) = env::var("MP_RETRY_DELAY") {
@@ -469,7 +587,7 @@ fn resolve_retry_delay(cli_retry_delay: Option<u64>) -> Result<u64, String> {
             .parse::<u64>()
             .map_err(|_| format!("Invalid MP_RETRY_DELAY '{raw}'. Must be an integer > 0."))?
     } else {
-        500
+        profile.retry_delay.unwrap_or(500)
     };
 
     if retry_delay == 0 {
@@ -479,12 +597,34 @@ fn resolve_retry_delay(cli_retry_delay: Option<u64>) -> Result<u64, String> {
     Ok(retry_delay)
 }
 
-fn resolve_output_format(output: Option<OutputFormat>, json: bool) -> OutputFormat {
+fn resolve_output_format(
+    output: Option<OutputFormat>,
+    json: bool,
+    profile: &ProfileConfig,
+) -> Result<OutputFormat, String> {
     if json {
-        return OutputFormat::Json;
+        return Ok(OutputFormat::Json);
     }
 
-    output.unwrap_or(OutputFormat::Text)
+    if let Some(output) = output {
+        return Ok(output);
+    }
+
+    if let Some(profile_output) = &profile.output {
+        return parse_output_format(profile_output);
+    }
+
+    Ok(OutputFormat::Text)
+}
+
+fn parse_output_format(raw: &str) -> Result<OutputFormat, String> {
+    match raw.trim().to_ascii_lowercase().as_str() {
+        "text" => Ok(OutputFormat::Text),
+        "json" => Ok(OutputFormat::Json),
+        other => Err(format!(
+            "Invalid profile output '{other}'. Supported values: text, json."
+        )),
+    }
 }
 
 fn resolve_prompt(cli_prompt: Option<String>) -> Result<PromptInput, String> {
