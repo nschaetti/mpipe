@@ -21,6 +21,18 @@ echo "Explain retries" | mpipe prompt render --prompt "You are concise"
 mpipe prompt render --json --system "You are concise" --prompt "Context" --postprompt "Answer in bullets" "Explain retries"
 ```
 
+## `mpipe models`
+
+List known models from the local catalog.
+
+```bash
+mpipe models
+mpipe models --provider fireworks
+mpipe models --json
+```
+
+`--json` includes `provider`, `id`, `source` (`local`), and `recommended`.
+
 ### Prompt input
 
 - `mpipe ask "question"` uses the CLI argument as prompt.

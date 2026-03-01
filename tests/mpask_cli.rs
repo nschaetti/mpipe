@@ -930,3 +930,47 @@ fn mpipe_prompt_render_fails_for_empty_stdin_prompt() {
                 .or(contains("Prompt is empty.")),
         );
 }
+
+#[test]
+fn mpipe_models_lists_known_models_in_text_mode() {
+    mpipe_cmd()
+        .args(["models"])
+        .assert()
+        .success()
+        .stdout(contains(
+            "fireworks\taccounts/fireworks/models/kimi-k2-instruct-0905",
+        ))
+        .stdout(contains("openai\tgpt-4o-mini"));
+}
+
+#[test]
+fn mpipe_models_filters_provider() {
+    mpipe_cmd()
+        .args(["models", "--provider", "openai"])
+        .assert()
+        .success()
+        .stdout(contains("openai\tgpt-4o-mini"))
+        .stdout(predicates::str::contains("fireworks").not());
+}
+
+#[test]
+fn mpipe_models_json_output_contains_expected_fields() {
+    let assert = mpipe_cmd()
+        .args(["models", "--provider", "fireworks", "--json"])
+        .assert()
+        .success();
+
+    let body = parse_stdout_json(&assert.get_output().stdout);
+    let entries = body.as_array().expect("models output should be an array");
+    assert_eq!(entries.len(), 1);
+    assert_eq!(
+        entries[0]["provider"],
+        Value::String("fireworks".to_string())
+    );
+    assert_eq!(
+        entries[0]["id"],
+        Value::String("accounts/fireworks/models/kimi-k2-instruct-0905".to_string())
+    );
+    assert_eq!(entries[0]["source"], Value::String("local".to_string()));
+    assert_eq!(entries[0]["recommended"], Value::Bool(true));
+}
