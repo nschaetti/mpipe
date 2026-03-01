@@ -1,7 +1,7 @@
 use assert_cmd::Command;
 use predicates::prelude::PredicateBooleanExt;
 use predicates::str::{contains, is_empty};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::fs;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -666,4 +666,72 @@ fn mpipe_completion_fish_outputs_script() {
         .assert()
         .success()
         .stdout(contains("complete -c mpipe"));
+}
+
+#[test]
+fn mpipe_config_check_succeeds_for_valid_file() {
+    let config_path = unique_temp_path("config-check-valid");
+    fs::write(
+        &config_path,
+        "[providers.openai.defaults]\noutput = \"text\"\ntimeout = 30\n\n[profiles.default]\nprovider = \"openai\"\nmodel = \"gpt-4o-mini\"\n",
+    )
+    .expect("config should be writable");
+
+    mpipe_cmd()
+        .env("MP_CONFIG", &config_path)
+        .args(["config", "check"])
+        .assert()
+        .success()
+        .stdout(contains("config OK:"));
+}
+
+#[test]
+fn mpipe_config_check_fails_for_invalid_provider_defaults() {
+    let config_path = unique_temp_path("config-check-invalid-defaults");
+    fs::write(
+        &config_path,
+        "[providers.openai.defaults]\noutput = \"yaml\"\n\n[profiles.default]\nprovider = \"openai\"\nmodel = \"gpt-4o-mini\"\n",
+    )
+    .expect("config should be writable");
+
+    mpipe_cmd()
+        .env("MP_CONFIG", &config_path)
+        .args(["config", "check"])
+        .assert()
+        .failure()
+        .stderr(contains("providers.openai.defaults.output"));
+}
+
+#[test]
+fn mpipe_config_check_profile_fails_when_profile_missing() {
+    let config_path = unique_temp_path("config-check-missing-profile");
+    fs::write(
+        &config_path,
+        "[profiles.default]\nprovider = \"openai\"\nmodel = \"gpt-4o-mini\"\n",
+    )
+    .expect("config should be writable");
+
+    mpipe_cmd()
+        .env("MP_CONFIG", &config_path)
+        .args(["config", "check", "--profile", "missing"])
+        .assert()
+        .failure()
+        .stderr(contains("Profile 'missing' not found"));
+}
+
+#[test]
+fn mpipe_config_check_profile_succeeds_when_profile_exists() {
+    let config_path = unique_temp_path("config-check-existing-profile");
+    fs::write(
+        &config_path,
+        "[providers.fireworks.defaults]\noutput = \"json\"\n\n[profiles.fw]\nprovider = \"fireworks\"\nmodel = \"accounts/fireworks/models/kimi-k2-instruct-0905\"\n",
+    )
+    .expect("config should be writable");
+
+    mpipe_cmd()
+        .env("MP_CONFIG", &config_path)
+        .args(["config", "check", "--profile", "fw"])
+        .assert()
+        .success()
+        .stdout(contains("config OK:"));
 }
