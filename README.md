@@ -76,6 +76,7 @@ Retries use exponential backoff: `retry-delay * 2^attempt`, capped at 30 seconds
 - `--output <text|json>` controls stdout format (`text` by default)
 - `--json` is a shortcut for `--output json`
 - `--show-usage` prints token usage and latency on stderr
+- `--quiet` suppresses non-critical stderr logs (usage/verbose), while keeping fatal errors visible
 - `--save <path>` writes the final stdout payload to a file (overwrite mode)
 - `--fail-on-empty` returns an error if the model answer is empty (applies in both text and json modes)
 
@@ -98,7 +99,25 @@ When `--show-usage` is enabled, `mpipe ask` prints either token usage + latency 
 - `--dry-run` prints the final request payload as JSON to stdout and does not call any API
 - `--version` prints version, commit, and build timestamp metadata
 
+When both `--quiet` and `--verbose`/`--show-usage` are set, `--quiet` wins for stderr informational output.
+
 `--dry-run` works without API keys. Authorization is always redacted in dry-run output.
+
+### Shell completion
+
+Generate completions with:
+
+```bash
+mpipe completion bash
+mpipe completion zsh
+mpipe completion fish
+```
+
+Example install (bash):
+
+```bash
+mpipe completion bash > ~/.local/share/bash-completion/completions/mpipe
+```
 
 ### API keys
 
@@ -115,18 +134,18 @@ Fireworks (recommended test model):
 export MP_PROVIDER=fireworks
 export MP_MODEL="accounts/fireworks/models/kimi-k2-instruct-0905"
 export FIREWORKS_API_KEY="..."
-echo "2+2?" | cargo run --quiet -- ask
+echo "2+2?" | cargo run --quiet --bin mpipe -- ask
 ```
 
 Equivalent explicit flags:
 
 ```bash
-echo "2+2?" | cargo run --quiet -- ask --provider fireworks --model "accounts/fireworks/models/kimi-k2-instruct-0905"
+echo "2+2?" | cargo run --quiet --bin mpipe -- ask --provider fireworks --model "accounts/fireworks/models/kimi-k2-instruct-0905"
 ```
 
 OpenAI example:
 
 ```bash
 export OPENAI_API_KEY="..."
-echo "2+2?" | cargo run --quiet -- ask --provider openai --model "gpt-4o-mini"
+echo "2+2?" | cargo run --quiet --bin mpipe -- ask --provider openai --model "gpt-4o-mini"
 ```

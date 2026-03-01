@@ -50,6 +50,9 @@ pub struct AskArgs {
     show_usage: bool,
 
     #[arg(long)]
+    quiet: bool,
+
+    #[arg(long)]
     verbose: bool,
 
     #[arg(long)]
@@ -196,7 +199,7 @@ pub async fn run(cli: AskArgs) -> Result<(), String> {
     );
     let messages = build_messages(non_empty(system.as_deref()), &prompt);
 
-    if cli.verbose {
+    if cli.verbose && !cli.quiet {
         log_verbose(
             provider,
             &model,
@@ -236,7 +239,7 @@ pub async fn run(cli: AskArgs) -> Result<(), String> {
         if let Some(path) = &cli.save {
             write_output(path, &rendered)?;
         }
-        if show_usage {
+        if show_usage && !cli.quiet {
             eprintln!("usage: unavailable latency_ms=0 (dry-run)");
         }
         return Ok(());
@@ -258,7 +261,7 @@ pub async fn run(cli: AskArgs) -> Result<(), String> {
         total_tokens: usage.total_tokens,
     });
 
-    if show_usage {
+    if show_usage && !cli.quiet {
         print_usage(&usage, latency_ms);
     }
 
@@ -321,8 +324,12 @@ fn write_output(path: &Path, content: &str) -> Result<(), String> {
     );
     let tmp_path = path.with_file_name(tmp_name);
 
-    fs::write(&tmp_path, content)
-        .map_err(|err| format!("Failed to write output file '{}': {err}", tmp_path.display()))?;
+    fs::write(&tmp_path, content).map_err(|err| {
+        format!(
+            "Failed to write output file '{}': {err}",
+            tmp_path.display()
+        )
+    })?;
 
     if let Err(err) = fs::rename(&tmp_path, path) {
         let _ = fs::remove_file(&tmp_path);
@@ -436,7 +443,10 @@ fn compose_prompt(preprompt: Option<&str>, main_prompt: &str, postprompt: Option
     parts.join("\n\n")
 }
 
-fn resolve_provider(cli_provider: Option<ProviderArg>, profile: &ProfileConfig) -> Result<Provider, String> {
+fn resolve_provider(
+    cli_provider: Option<ProviderArg>,
+    profile: &ProfileConfig,
+) -> Result<Provider, String> {
     if let Some(provider) = cli_provider {
         return Ok(match provider {
             ProviderArg::Openai => Provider::Openai,
@@ -541,7 +551,10 @@ fn resolve_max_tokens(
     Ok(max_tokens)
 }
 
-fn resolve_timeout(cli_timeout: Option<u64>, profile: &ProfileConfig) -> Result<Option<u64>, String> {
+fn resolve_timeout(
+    cli_timeout: Option<u64>,
+    profile: &ProfileConfig,
+) -> Result<Option<u64>, String> {
     let timeout = if let Some(timeout) = cli_timeout {
         Some(timeout)
     } else if let Ok(raw) = env::var("MP_TIMEOUT") {
@@ -578,7 +591,10 @@ fn resolve_retries(cli_retries: Option<u32>, profile: &ProfileConfig) -> Result<
     Ok(profile.retries.unwrap_or(0))
 }
 
-fn resolve_retry_delay(cli_retry_delay: Option<u64>, profile: &ProfileConfig) -> Result<u64, String> {
+fn resolve_retry_delay(
+    cli_retry_delay: Option<u64>,
+    profile: &ProfileConfig,
+) -> Result<u64, String> {
     let retry_delay = if let Some(retry_delay) = cli_retry_delay {
         retry_delay
     } else if let Ok(raw) = env::var("MP_RETRY_DELAY") {
@@ -665,7 +681,10 @@ fn log_verbose(
     options: &AskOptions,
 ) {
     let api_key_present = provider::is_api_key_present(provider);
-    let total_chars: usize = messages.iter().map(|message| message.content.chars().count()).sum();
+    let total_chars: usize = messages
+        .iter()
+        .map(|message| message.content.chars().count())
+        .sum();
 
     eprintln!(
         "verbose: provider={} endpoint={} model={} output={} dry_run={} show_usage={} prompt_source={} messages={} chars={} api_key_present={}",
@@ -699,5 +718,8 @@ fn log_verbose(
 fn render_version() -> String {
     let commit = option_env!("MP_GIT_SHA").unwrap_or("unknown");
     let built = option_env!("MP_BUILD_TS").unwrap_or("unknown");
-    format!("{}\ncommit: {commit}\nbuilt: {built}", env!("CARGO_PKG_VERSION"))
+    format!(
+        "{}\ncommit: {commit}\nbuilt: {built}",
+        env!("CARGO_PKG_VERSION")
+    )
 }
