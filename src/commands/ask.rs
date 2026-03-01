@@ -164,6 +164,17 @@ struct UsageData {
     total_tokens: Option<u32>,
 }
 
+struct VerboseContext<'a> {
+    provider: Provider,
+    model: &'a str,
+    output_format: OutputFormat,
+    dry_run: bool,
+    show_usage: bool,
+    prompt_source: PromptSource,
+    messages: &'a [ChatMessage],
+    options: &'a AskOptions,
+}
+
 pub async fn run(cli: AskArgs) -> Result<(), String> {
     if cli.version {
         println!("{}", render_version());
@@ -200,16 +211,16 @@ pub async fn run(cli: AskArgs) -> Result<(), String> {
     let messages = build_messages(non_empty(system.as_deref()), &prompt);
 
     if cli.verbose && !cli.quiet {
-        log_verbose(
+        log_verbose(VerboseContext {
             provider,
-            &model,
+            model: &model,
             output_format,
-            cli.dry_run,
+            dry_run: cli.dry_run,
             show_usage,
-            main_prompt.source,
-            &messages,
-            &options,
-        );
+            prompt_source: main_prompt.source,
+            messages: &messages,
+            options: &options,
+        });
     }
 
     if cli.dry_run {
@@ -299,15 +310,15 @@ pub async fn run(cli: AskArgs) -> Result<(), String> {
 }
 
 fn write_output(path: &Path, content: &str) -> Result<(), String> {
-    if let Some(parent) = path.parent() {
-        if !parent.as_os_str().is_empty() {
-            fs::create_dir_all(parent).map_err(|err| {
-                format!(
-                    "Failed to create output directory '{}': {err}",
-                    parent.display()
-                )
-            })?;
-        }
+    if let Some(parent) = path.parent()
+        && !parent.as_os_str().is_empty()
+    {
+        fs::create_dir_all(parent).map_err(|err| {
+            format!(
+                "Failed to create output directory '{}': {err}",
+                parent.display()
+            )
+        })?;
     }
 
     let now = SystemTime::now()
@@ -381,23 +392,23 @@ fn json_usage(usage: &UsageData) -> Option<JsonUsage> {
 }
 
 fn print_usage(usage: &Option<UsageData>, latency_ms: u128) {
-    if let Some(usage) = usage {
-        if let Some(usage) = json_usage(usage) {
-            eprintln!(
-                "usage: prompt_tokens={} completion_tokens={} total_tokens={} latency_ms={}",
-                usage
-                    .prompt_tokens
-                    .map_or_else(|| "n/a".to_string(), |value| value.to_string()),
-                usage
-                    .completion_tokens
-                    .map_or_else(|| "n/a".to_string(), |value| value.to_string()),
-                usage
-                    .total_tokens
-                    .map_or_else(|| "n/a".to_string(), |value| value.to_string()),
-                latency_ms
-            );
-            return;
-        }
+    if let Some(usage) = usage
+        && let Some(usage) = json_usage(usage)
+    {
+        eprintln!(
+            "usage: prompt_tokens={} completion_tokens={} total_tokens={} latency_ms={}",
+            usage
+                .prompt_tokens
+                .map_or_else(|| "n/a".to_string(), |value| value.to_string()),
+            usage
+                .completion_tokens
+                .map_or_else(|| "n/a".to_string(), |value| value.to_string()),
+            usage
+                .total_tokens
+                .map_or_else(|| "n/a".to_string(), |value| value.to_string()),
+            latency_ms
+        );
+        return;
     }
 
     eprintln!("usage: unavailable latency_ms={latency_ms}");
@@ -426,18 +437,18 @@ fn build_messages(system: Option<&str>, prompt: &str) -> Vec<ChatMessage> {
 fn compose_prompt(preprompt: Option<&str>, main_prompt: &str, postprompt: Option<&str>) -> String {
     let mut parts = Vec::new();
 
-    if let Some(pre) = preprompt {
-        if !pre.trim().is_empty() {
-            parts.push(pre.to_string());
-        }
+    if let Some(pre) = preprompt
+        && !pre.trim().is_empty()
+    {
+        parts.push(pre.to_string());
     }
 
     parts.push(main_prompt.to_string());
 
-    if let Some(post) = postprompt {
-        if !post.trim().is_empty() {
-            parts.push(post.to_string());
-        }
+    if let Some(post) = postprompt
+        && !post.trim().is_empty()
+    {
+        parts.push(post.to_string());
     }
 
     parts.join("\n\n")
@@ -515,12 +526,12 @@ fn resolve_temperature(
         profile.temperature
     };
 
-    if let Some(value) = temperature {
-        if !(0.0..=2.0).contains(&value) {
-            return Err(format!(
-                "Invalid temperature {value}. Must be in [0.0, 2.0]."
-            ));
-        }
+    if let Some(value) = temperature
+        && !(0.0..=2.0).contains(&value)
+    {
+        return Err(format!(
+            "Invalid temperature {value}. Must be in [0.0, 2.0]."
+        ));
     }
 
     Ok(temperature)
@@ -542,10 +553,10 @@ fn resolve_max_tokens(
         profile.max_tokens
     };
 
-    if let Some(value) = max_tokens {
-        if value == 0 {
-            return Err("Invalid max tokens 0. Must be > 0.".to_string());
-        }
+    if let Some(value) = max_tokens
+        && value == 0
+    {
+        return Err("Invalid max tokens 0. Must be > 0.".to_string());
     }
 
     Ok(max_tokens)
@@ -567,10 +578,10 @@ fn resolve_timeout(
         profile.timeout
     };
 
-    if let Some(value) = timeout {
-        if value == 0 {
-            return Err("Invalid timeout 0. Must be > 0 seconds.".to_string());
-        }
+    if let Some(value) = timeout
+        && value == 0
+    {
+        return Err("Invalid timeout 0. Must be > 0 seconds.".to_string());
     }
 
     Ok(timeout)
@@ -670,48 +681,43 @@ fn resolve_prompt(cli_prompt: Option<String>) -> Result<PromptInput, String> {
     })
 }
 
-fn log_verbose(
-    provider: Provider,
-    model: &str,
-    output_format: OutputFormat,
-    dry_run: bool,
-    show_usage: bool,
-    prompt_source: PromptSource,
-    messages: &[ChatMessage],
-    options: &AskOptions,
-) {
-    let api_key_present = provider::is_api_key_present(provider);
-    let total_chars: usize = messages
+fn log_verbose(context: VerboseContext<'_>) {
+    let api_key_present = provider::is_api_key_present(context.provider);
+    let total_chars: usize = context
+        .messages
         .iter()
         .map(|message| message.content.chars().count())
         .sum();
 
     eprintln!(
         "verbose: provider={} endpoint={} model={} output={} dry_run={} show_usage={} prompt_source={} messages={} chars={} api_key_present={}",
-        provider.as_str(),
-        provider::endpoint(provider),
-        model,
-        output_format.as_str(),
-        dry_run,
-        show_usage,
-        prompt_source.as_str(),
-        messages.len(),
+        context.provider.as_str(),
+        provider::endpoint(context.provider),
+        context.model,
+        context.output_format.as_str(),
+        context.dry_run,
+        context.show_usage,
+        context.prompt_source.as_str(),
+        context.messages.len(),
         total_chars,
         api_key_present
     );
     eprintln!(
         "verbose: options temperature={} max_tokens={} timeout_secs={} retries={} retry_delay_ms={} backoff=exponential",
-        options
+        context
+            .options
             .temperature
             .map_or_else(|| "n/a".to_string(), |value| value.to_string()),
-        options
+        context
+            .options
             .max_tokens
             .map_or_else(|| "n/a".to_string(), |value| value.to_string()),
-        options
+        context
+            .options
             .timeout_secs
             .map_or_else(|| "n/a".to_string(), |value| value.to_string()),
-        options.retries,
-        options.retry_delay_ms
+        context.options.retries,
+        context.options.retry_delay_ms
     );
 }
 

@@ -232,40 +232,40 @@ fn validate_profile_fields(
     section_path: &str,
     fields: &dyn ValidatableProfileFields,
 ) -> Result<(), String> {
-    if let Some(value) = fields.temperature() {
-        if !(0.0..=2.0).contains(&value) {
-            return Err(format!(
-                "Invalid value at '{section_path}.temperature' in config file '{}': {value} (must be in [0.0, 2.0]).",
-                path.display()
-            ));
-        }
+    if let Some(value) = fields.temperature()
+        && !(0.0..=2.0).contains(&value)
+    {
+        return Err(format!(
+            "Invalid value at '{section_path}.temperature' in config file '{}': {value} (must be in [0.0, 2.0]).",
+            path.display()
+        ));
     }
 
-    if let Some(value) = fields.max_tokens() {
-        if value == 0 {
-            return Err(format!(
-                "Invalid value at '{section_path}.max_tokens' in config file '{}': 0 (must be > 0).",
-                path.display()
-            ));
-        }
+    if let Some(value) = fields.max_tokens()
+        && value == 0
+    {
+        return Err(format!(
+            "Invalid value at '{section_path}.max_tokens' in config file '{}': 0 (must be > 0).",
+            path.display()
+        ));
     }
 
-    if let Some(value) = fields.timeout() {
-        if value == 0 {
-            return Err(format!(
-                "Invalid value at '{section_path}.timeout' in config file '{}': 0 (must be > 0).",
-                path.display()
-            ));
-        }
+    if let Some(value) = fields.timeout()
+        && value == 0
+    {
+        return Err(format!(
+            "Invalid value at '{section_path}.timeout' in config file '{}': 0 (must be > 0).",
+            path.display()
+        ));
     }
 
-    if let Some(value) = fields.retry_delay() {
-        if value == 0 {
-            return Err(format!(
-                "Invalid value at '{section_path}.retry_delay' in config file '{}': 0 (must be > 0).",
-                path.display()
-            ));
-        }
+    if let Some(value) = fields.retry_delay()
+        && value == 0
+    {
+        return Err(format!(
+            "Invalid value at '{section_path}.retry_delay' in config file '{}': 0 (must be > 0).",
+            path.display()
+        ));
     }
 
     if let Some(raw_output) = fields.output() {

@@ -1,6 +1,8 @@
 ![mpipe banner](images/banner/banner_readme.png)
 
 # mpipe
+[![CI](https://github.com/nschaetti/mpipe/actions/workflows/ci.yml/badge.svg)](https://github.com/nschaetti/mpipe/actions/workflows/ci.yml)
+
 A set of LLM-based command line tools
 
 ## `mpipe ask`
@@ -163,3 +165,19 @@ OpenAI example:
 export OPENAI_API_KEY="..."
 echo "2+2?" | cargo run --quiet --bin mpipe -- ask --provider openai --model "gpt-4o-mini"
 ```
+
+## Development
+
+Standard local targets:
+
+```bash
+make check
+make clippy
+make test
+```
+
+CI runs the same checks on `push`/`pull_request`:
+
+- `cargo fmt --all -- --check`
+- `cargo clippy --all-targets --all-features -- -D warnings`
+- `cargo test --all-targets --all-features`

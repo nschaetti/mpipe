@@ -24,7 +24,7 @@ struct Cli {
 #[derive(Debug, Subcommand)]
 enum Commands {
     #[command(about = "Ask a question to an LLM provider", after_help = ASK_HELP_EXAMPLES)]
-    Ask(AskArgs),
+    Ask(Box<AskArgs>),
     #[command(about = "Manage local config")]
     Config(ConfigArgs),
     #[command(about = "Generate shell completion script")]
@@ -55,7 +55,7 @@ async fn main() {
     let cli = Cli::parse();
 
     let result = match cli.command {
-        Commands::Ask(args) => ask::run(args).await,
+        Commands::Ask(args) => ask::run(*args).await,
         Commands::Config(args) => config::run(args),
         Commands::Completion { shell } => {
             print_completion(shell);
