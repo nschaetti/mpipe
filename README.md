@@ -11,6 +11,16 @@ Minimal Unix CLI to send one prompt to an LLM provider and print raw text output
 
 `mpask` is kept as a compatibility alias and supports the same options/behavior as `mpipe ask`.
 
+## `mpipe prompt render`
+
+Render the final composed prompt locally without any API call.
+
+```bash
+mpipe prompt render "Explain retries"
+echo "Explain retries" | mpipe prompt render --prompt "You are concise"
+mpipe prompt render --json --system "You are concise" --prompt "Context" --postprompt "Answer in bullets" "Explain retries"
+```
+
 ### Prompt input
 
 - `mpipe ask "question"` uses the CLI argument as prompt.

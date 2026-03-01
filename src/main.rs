@@ -5,8 +5,9 @@ use clap::{CommandFactory, Parser, Subcommand, ValueEnum};
 use clap_complete::{generate, shells};
 use mpipe::commands::ask::{self, AskArgs};
 use mpipe::commands::config::{self, ConfigArgs};
+use mpipe::commands::prompt::{self, PromptArgs};
 
-const ROOT_HELP_EXAMPLES: &str = "Examples:\n  mpipe ask --provider fireworks --model accounts/fireworks/models/kimi-k2-instruct-0905 \"2+2?\"\n  echo \"2+2?\" | mpipe ask --provider openai --model gpt-4o-mini\n  mpipe config check\n  mpipe completion bash > ~/.local/share/bash-completion/completions/mpipe";
+const ROOT_HELP_EXAMPLES: &str = "Examples:\n  mpipe ask --provider fireworks --model accounts/fireworks/models/kimi-k2-instruct-0905 \"2+2?\"\n  echo \"2+2?\" | mpipe ask --provider openai --model gpt-4o-mini\n  mpipe prompt render --prompt \"You are concise\" \"Explain retries\"\n  mpipe config check\n  mpipe completion bash > ~/.local/share/bash-completion/completions/mpipe";
 
 const ASK_HELP_EXAMPLES: &str = "Examples:\n  mpipe ask --provider fireworks --model accounts/fireworks/models/kimi-k2-instruct-0905 \"2+2?\"\n  echo \"2+2?\" | mpipe ask --provider openai --model gpt-4o-mini\n  mpipe ask --provider fireworks --model accounts/fireworks/models/kimi-k2-instruct-0905 --dry-run --json \"Explain retries\"";
 
@@ -25,6 +26,8 @@ struct Cli {
 enum Commands {
     #[command(about = "Ask a question to an LLM provider", after_help = ASK_HELP_EXAMPLES)]
     Ask(Box<AskArgs>),
+    #[command(about = "Prompt tooling")]
+    Prompt(PromptArgs),
     #[command(about = "Manage local config")]
     Config(ConfigArgs),
     #[command(about = "Generate shell completion script")]
@@ -56,6 +59,7 @@ async fn main() {
 
     let result = match cli.command {
         Commands::Ask(args) => ask::run(*args).await,
+        Commands::Prompt(args) => prompt::run(args),
         Commands::Config(args) => config::run(args),
         Commands::Completion { shell } => {
             print_completion(shell);

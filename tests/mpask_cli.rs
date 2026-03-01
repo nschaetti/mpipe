@@ -819,3 +819,114 @@ fn mpipe_config_check_fails_when_toml_is_invalid() {
         .failure()
         .stderr(contains("Failed to parse config file"));
 }
+
+#[test]
+fn mpipe_prompt_render_reads_argument_prompt() {
+    mpipe_cmd()
+        .args(["prompt", "render", "hello world"])
+        .assert()
+        .success()
+        .stdout(contains("hello world\n"));
+}
+
+#[test]
+fn mpipe_prompt_render_reads_stdin_when_argument_missing() {
+    mpipe_cmd()
+        .args(["prompt", "render"])
+        .write_stdin("stdin prompt")
+        .assert()
+        .success()
+        .stdout(contains("stdin prompt\n"));
+}
+
+#[test]
+fn mpipe_prompt_render_argument_has_priority_over_stdin() {
+    mpipe_cmd()
+        .args(["prompt", "render", "argument prompt"])
+        .write_stdin("stdin prompt")
+        .assert()
+        .success()
+        .stdout(contains("argument prompt\n"));
+}
+
+#[test]
+fn mpipe_prompt_render_composes_pre_and_post_prompt() {
+    mpipe_cmd()
+        .args([
+            "prompt",
+            "render",
+            "--prompt",
+            "before",
+            "--postprompt",
+            "after",
+            "main",
+        ])
+        .assert()
+        .success()
+        .stdout(contains("before\n\nmain\n\nafter\n"));
+}
+
+#[test]
+fn mpipe_prompt_render_json_includes_messages_and_source() {
+    let assert = mpipe_cmd()
+        .args([
+            "prompt",
+            "render",
+            "--json",
+            "--system",
+            "sys",
+            "--prompt",
+            "pre",
+            "--postprompt",
+            "post",
+            "main",
+        ])
+        .assert()
+        .success();
+
+    let body = parse_stdout_json(&assert.get_output().stdout);
+    assert_eq!(
+        body["prompt"],
+        Value::String("pre\n\nmain\n\npost".to_string())
+    );
+    assert_eq!(body["prompt_source"], Value::String("argument".to_string()));
+
+    let messages = body["messages"]
+        .as_array()
+        .expect("messages should be an array");
+    assert_eq!(messages.len(), 2);
+    assert_eq!(messages[0]["role"], Value::String("system".to_string()));
+    assert_eq!(messages[0]["content"], Value::String("sys".to_string()));
+    assert_eq!(
+        messages[1]["content"],
+        Value::String("pre\n\nmain\n\npost".to_string())
+    );
+}
+
+#[test]
+fn mpipe_prompt_render_ignores_blank_system() {
+    let assert = mpipe_cmd()
+        .args(["prompt", "render", "--json", "--system", "   ", "main"])
+        .assert()
+        .success();
+
+    let body = parse_stdout_json(&assert.get_output().stdout);
+    let messages = body["messages"]
+        .as_array()
+        .expect("messages should be an array");
+    assert_eq!(messages.len(), 1);
+    assert_eq!(messages[0]["role"], Value::String("user".to_string()));
+}
+
+#[test]
+fn mpipe_prompt_render_fails_for_empty_stdin_prompt() {
+    mpipe_cmd()
+        .args(["prompt", "render"])
+        .write_stdin("   \n\n")
+        .assert()
+        .failure()
+        .stderr(
+            contains("No prompt provided. Pass an argument or pipe stdin.")
+                .or(contains("Prompt is empty.")),
+        );
+}
