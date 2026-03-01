@@ -735,3 +735,87 @@ fn mpipe_config_check_profile_succeeds_when_profile_exists() {
         .success()
         .stdout(contains("config OK:"));
 }
+
+#[test]
+fn profile_resolution_includes_provider_defaults_with_correct_precedence() {
+    let config_path = unique_temp_path("provider-defaults-precedence");
+    fs::write(
+        &config_path,
+        "[providers.fireworks.defaults]\ntemperature = 0.1\ntimeout = 12\noutput = \"json\"\n\n[profiles.fw]\nprovider = \"fireworks\"\nmodel = \"accounts/fireworks/models/kimi-k2-instruct-0905\"\ntimeout = 9\n",
+    )
+    .expect("config should be writable");
+
+    let base = mpask_cmd()
+        .env("MP_CONFIG", &config_path)
+        .args(["--profile", "fw", "--dry-run", "hello"])
+        .assert()
+        .success();
+
+    let base_body = parse_stdout_json(&base.get_output().stdout);
+    assert_eq!(base_body["request"]["temperature"], json!(0.1));
+    assert_eq!(base_body["request"]["timeout_secs"], Value::from(9));
+    assert_eq!(base_body["output"], Value::String("json".to_string()));
+
+    let env_overrides = mpask_cmd()
+        .env("MP_CONFIG", &config_path)
+        .env("MP_TEMPERATURE", "0.7")
+        .env("MP_TIMEOUT", "21")
+        .args(["--profile", "fw", "--dry-run", "hello"])
+        .assert()
+        .success();
+
+    let env_body = parse_stdout_json(&env_overrides.get_output().stdout);
+    assert_eq!(env_body["request"]["temperature"], json!(0.7));
+    assert_eq!(env_body["request"]["timeout_secs"], Value::from(21));
+    assert_eq!(env_body["output"], Value::String("json".to_string()));
+
+    let cli_overrides = mpask_cmd()
+        .env("MP_CONFIG", &config_path)
+        .env("MP_TEMPERATURE", "0.7")
+        .env("MP_TIMEOUT", "21")
+        .args([
+            "--profile",
+            "fw",
+            "--dry-run",
+            "--temperature",
+            "1.3",
+            "--timeout",
+            "33",
+            "--output",
+            "text",
+            "hello",
+        ])
+        .assert()
+        .success();
+
+    let cli_body = parse_stdout_json(&cli_overrides.get_output().stdout);
+    assert_eq!(cli_body["request"]["temperature"], json!(1.3));
+    assert_eq!(cli_body["request"]["timeout_secs"], Value::from(33));
+    assert_eq!(cli_body["output"], Value::String("text".to_string()));
+}
+
+#[test]
+fn mpipe_config_check_fails_when_config_file_is_missing() {
+    let config_path = unique_temp_path("config-check-missing-file");
+
+    mpipe_cmd()
+        .env("MP_CONFIG", &config_path)
+        .args(["config", "check"])
+        .assert()
+        .failure()
+        .stderr(contains("Failed to read config file"));
+}
+
+#[test]
+fn mpipe_config_check_fails_when_toml_is_invalid() {
+    let config_path = unique_temp_path("config-check-invalid-toml");
+    fs::write(&config_path, "[profiles.bad\nprovider = \"openai\"")
+        .expect("config should be writable");
+
+    mpipe_cmd()
+        .env("MP_CONFIG", &config_path)
+        .args(["config", "check"])
+        .assert()
+        .failure()
+        .stderr(contains("Failed to parse config file"));
+}

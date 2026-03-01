@@ -36,21 +36,35 @@ When `--system` is provided, `mpipe ask` sends two chat messages: `system` then 
   - `MP_CONFIG` if set
   - otherwise `${XDG_CONFIG_HOME:-~/.config}/mpipe/config.toml`
 - Resolution priority for overlapping values is:
-  - CLI flags > environment variables > profile > built-in defaults
+  - CLI flags > environment variables > profile > provider defaults > built-in defaults
 
 Example config file:
 
 ```toml
-[profiles.fireworks]
-provider = "fireworks"
-model = "accounts/fireworks/models/kimi-k2-instruct-0905"
-temperature = 0.2
+[providers.openai.defaults]
+timeout = 20
+output = "text"
+
+[providers.fireworks.defaults]
 timeout = 15
 retries = 2
 retry_delay = 300
 output = "json"
+
+[profiles.fireworks]
+provider = "fireworks"
+model = "accounts/fireworks/models/kimi-k2-instruct-0905"
+temperature = 0.2
+timeout = 10
 show_usage = true
 system = "You are concise"
+```
+
+Validate config locally (no API calls):
+
+```bash
+mpipe config check
+mpipe config check --profile fireworks
 ```
 
 ### Generation options
