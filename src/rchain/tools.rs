@@ -1,10 +1,10 @@
 use std::error::Error;
 use std::io::Cursor;
 
-use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
+use base64::engine::general_purpose::STANDARD;
 use image::ImageOutputFormat;
-use serde_json::{json, Map, Value};
+use serde_json::{Map, Value, json};
 
 /// JSON schema primitive types supported for tool parameters.
 #[derive(Debug, Clone)]

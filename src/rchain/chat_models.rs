@@ -2,7 +2,7 @@ use std::env;
 use std::error::Error;
 
 use reqwest::blocking::Client;
-use serde_json::{json, Map, Value};
+use serde_json::{Map, Value, json};
 
 use crate::rchain::ai::AIMessage;
 use crate::rchain::human::HumanMessage;

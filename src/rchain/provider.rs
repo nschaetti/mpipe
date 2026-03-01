@@ -99,7 +99,10 @@ pub struct AskResponse {
 
 #[derive(Debug)]
 pub enum ProviderError {
-    MissingApiKey { provider: Provider, key_env: &'static str },
+    MissingApiKey {
+        provider: Provider,
+        key_env: &'static str,
+    },
     Request {
         provider: Provider,
         source: reqwest::Error,
@@ -109,7 +112,9 @@ pub enum ProviderError {
         status: StatusCode,
         body: String,
     },
-    EmptyResponse { provider: Provider },
+    EmptyResponse {
+        provider: Provider,
+    },
 }
 
 impl fmt::Display for ProviderError {
@@ -127,7 +132,11 @@ impl fmt::Display for ProviderError {
                 body,
             } => write!(f, "{} API error {status}: {body}", provider.as_str()),
             Self::EmptyResponse { provider } => {
-                write!(f, "{} response did not contain message content", provider.as_str())
+                write!(
+                    f,
+                    "{} response did not contain message content",
+                    provider.as_str()
+                )
             }
         }
     }

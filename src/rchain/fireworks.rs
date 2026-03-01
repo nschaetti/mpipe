@@ -2,9 +2,7 @@ use std::env;
 
 use serde::{Deserialize, Serialize};
 
-use crate::rchain::chat_runtime::{
-    RequestFailure, RetryConfig, send_chat_request_with_retry,
-};
+use crate::rchain::chat_runtime::{RequestFailure, RetryConfig, send_chat_request_with_retry};
 use crate::rchain::provider::{
     AskOptions, AskResponse, ChatMessage, Provider, ProviderError, Usage, api_key_env,
 };
@@ -46,12 +44,7 @@ struct UsagePayload {
 }
 
 pub async fn ask(prompt: &str, model: &str) -> Result<String, ProviderError> {
-    let response = ask_messages(
-        &[ChatMessage::user(prompt)],
-        model,
-        AskOptions::default(),
-    )
-    .await?;
+    let response = ask_messages(&[ChatMessage::user(prompt)], model, AskOptions::default()).await?;
     Ok(response.content)
 }
 
@@ -62,7 +55,8 @@ pub async fn ask_messages(
 ) -> Result<AskResponse, ProviderError> {
     let provider = Provider::Fireworks;
     let key_env = api_key_env(provider);
-    let api_key = env::var(key_env).map_err(|_| ProviderError::MissingApiKey { key_env, provider })?;
+    let api_key =
+        env::var(key_env).map_err(|_| ProviderError::MissingApiKey { key_env, provider })?;
 
     let payload = ChatCompletionRequest {
         model: model.to_string(),
