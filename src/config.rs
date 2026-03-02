@@ -17,6 +17,10 @@ pub struct ProfileConfig {
     pub retry_delay: Option<u64>,
     pub output: Option<String>,
     pub show_usage: Option<bool>,
+    pub embedding_model: Option<String>,
+    pub chunk_size: Option<usize>,
+    pub chunk_overlap: Option<usize>,
+    pub chunk_strategy: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -133,6 +137,10 @@ fn merge_provider_defaults(
         retry_delay: profile.retry_delay.or(defaults.retry_delay),
         output: profile.output.clone().or(defaults.output),
         show_usage: profile.show_usage.or(defaults.show_usage),
+        embedding_model: profile.embedding_model.clone(),
+        chunk_size: profile.chunk_size,
+        chunk_overlap: profile.chunk_overlap,
+        chunk_strategy: profile.chunk_strategy.clone(),
     }
 }
 
