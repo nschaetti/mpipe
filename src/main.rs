@@ -5,6 +5,7 @@ use clap::{CommandFactory, Parser, Subcommand, ValueEnum};
 use clap_complete::{generate, shells};
 use mpipe::commands::ask::{self, AskArgs};
 use mpipe::commands::config::{self, ConfigArgs};
+use mpipe::commands::download::{self, DownloadArgs};
 use mpipe::commands::embed::{self, EmbedArgs};
 use mpipe::commands::models::{self, ModelsArgs};
 use mpipe::commands::prompt::{self, PromptArgs};
@@ -34,6 +35,8 @@ enum Commands {
     Prompt(PromptArgs),
     #[command(about = "Generate text embeddings")]
     Embed(EmbedArgs),
+    #[command(about = "Download video from YouTube and other sites")]
+    Download(DownloadArgs),
     #[command(about = "Manage local config")]
     Config(ConfigArgs),
     #[command(about = "Generate shell completion script")]
@@ -68,6 +71,7 @@ async fn main() {
         Commands::Models(args) => models::run(args),
         Commands::Prompt(args) => prompt::run(args),
         Commands::Embed(args) => embed::run(args),
+        Commands::Download(args) => download::run(args),
         Commands::Config(args) => config::run(args),
         Commands::Completion { shell } => {
             print_completion(shell);
