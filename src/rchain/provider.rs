@@ -2,7 +2,7 @@ use std::env;
 use std::fmt;
 
 use reqwest::StatusCode;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::rchain::{fireworks, openai};
 
@@ -41,26 +41,144 @@ pub fn is_api_key_present(provider: Provider) -> bool {
         .is_some_and(|value| !value.trim().is_empty())
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum MessageContent {
+    Simple(String),
+    Multi(Vec<ContentPart>),
+}
+
+impl MessageContent {
+    pub fn text(text: impl Into<String>) -> Self {
+        Self::Simple(text.into())
+    }
+
+    pub fn with_image(text: impl Into<String>, image_url: impl Into<String>) -> Self {
+        Self::Multi(vec![
+            ContentPart::Text {
+                text: text.into(),
+            },
+            ContentPart::ImageUrl {
+                image_url: ImageUrl {
+                    url: image_url.into(),
+                },
+            },
+        ])
+    }
+
+    pub fn is_empty(&self) -> bool {
+        match self {
+            Self::Simple(s) => s.is_empty(),
+            Self::Multi(parts) => parts.is_empty(),
+        }
+    }
+
+    pub fn text_len(&self) -> usize {
+        match self {
+            Self::Simple(s) => s.chars().count(),
+            Self::Multi(parts) => {
+                parts
+                    .iter()
+                    .map(|part| match part {
+                        ContentPart::Text { text } => text.chars().count(),
+                        ContentPart::ImageUrl { .. } => 0,
+                    })
+                    .sum()
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type")]
+pub enum ContentPart {
+    #[serde(rename = "text")]
+    Text {
+        text: String,
+    },
+    #[serde(rename = "image_url")]
+    ImageUrl {
+        #[serde(rename = "image_url")]
+        image_url: ImageUrl,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ImageUrl {
+    pub url: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChatMessage {
     pub role: String,
-    pub content: String,
+    pub content: MessageContent,
 }
 
 impl ChatMessage {
-    pub fn system(content: impl Into<String>) -> Self {
+    pub fn system(content: impl Into<MessageContent>) -> Self {
         Self {
             role: "system".to_string(),
             content: content.into(),
         }
     }
 
-    pub fn user(content: impl Into<String>) -> Self {
+    pub fn user(content: impl Into<MessageContent>) -> Self {
         Self {
             role: "user".to_string(),
             content: content.into(),
         }
     }
+
+    pub fn user_with_text(text: impl Into<String>) -> Self {
+        Self::user(MessageContent::text(text))
+    }
+
+    pub fn user_with_text_and_image(text: impl Into<String>, image_url: impl Into<String>) -> Self {
+        Self::user(MessageContent::with_image(text, image_url))
+    }
+}
+
+impl From<String> for MessageContent {
+    fn from(s: String) -> Self {
+        MessageContent::Simple(s)
+    }
+}
+
+impl From<&str> for MessageContent {
+    fn from(s: &str) -> Self {
+        MessageContent::Simple(s.to_string())
+    }
+}
+
+pub fn resolve_image_url(input: &str) -> Result<String, String> {
+    let trimmed = input.trim();
+    if trimmed.starts_with("http://") || trimmed.starts_with("https://") {
+        return Ok(trimmed.to_string());
+    }
+
+    let path = std::path::Path::new(trimmed);
+    if !path.exists() {
+        return Err(format!("Image file not found: {}", trimmed));
+    }
+
+    let mime = if let Some(ext) = path.extension() {
+        match ext.to_str().map(|e| e.to_lowercase()).as_deref() {
+            Some("jpg") | Some("jpeg") => "image/jpeg",
+            Some("png") => "image/png",
+            Some("gif") => "image/gif",
+            Some("webp") => "image/webp",
+            Some("bmp") => "image/bmp",
+            _ => "application/octet-stream",
+        }
+    } else {
+        "application/octet-stream"
+    };
+
+    let data = std::fs::read(path)
+        .map_err(|e| format!("Failed to read image file: {}", e))?;
+
+    let base64 = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &data);
+    Ok(format!("data:{};base64,{}", mime, base64))
 }
 
 #[derive(Debug, Clone, Copy)]

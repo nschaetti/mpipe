@@ -8,7 +8,8 @@ use clap::{Args, ValueEnum};
 use serde::Serialize;
 
 use crate::commands::prompting::{
-    PromptSource, build_messages, compose_prompt, non_empty, resolve_prompt,
+    PromptSource, build_messages, build_messages_with_image, compose_prompt, non_empty,
+    resolve_prompt,
 };
 use crate::config::{self, ProfileConfig};
 use crate::rchain::provider::{self, AskOptions, ChatMessage, Provider};
@@ -74,6 +75,9 @@ pub struct AskArgs {
 
     #[arg(long)]
     postprompt: Option<String>,
+
+    #[arg(long)]
+    image: Option<String>,
 
     input: Option<String>,
 }
@@ -189,7 +193,14 @@ pub async fn run(cli: AskArgs) -> Result<(), String> {
         &main_prompt.text,
         cli.postprompt.as_deref(),
     );
-    let messages = build_messages(non_empty(system.as_deref()), &prompt);
+
+    let messages = if let Some(image_input) = &cli.image {
+        let resolved_url = provider::resolve_image_url(image_input)
+            .map_err(|e| format!("Failed to resolve image: {}", e))?;
+        build_messages_with_image(non_empty(system.as_deref()), &prompt, &resolved_url)
+    } else {
+        build_messages(non_empty(system.as_deref()), &prompt)
+    };
 
     if cli.verbose && !cli.quiet {
         log_verbose(VerboseContext {
@@ -599,7 +610,7 @@ fn log_verbose(context: VerboseContext<'_>) {
     let total_chars: usize = context
         .messages
         .iter()
-        .map(|message| message.content.chars().count())
+        .map(|message| message.content.text_len())
         .sum();
 
     eprintln!(

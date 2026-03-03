@@ -1,6 +1,6 @@
 use std::io::{self, IsTerminal, Read};
 
-use crate::rchain::provider::ChatMessage;
+use crate::rchain::provider::{ChatMessage, MessageContent};
 
 #[derive(Debug)]
 pub struct PromptInput {
@@ -37,9 +37,22 @@ pub fn non_empty(value: Option<&str>) -> Option<&str> {
 pub fn build_messages(system: Option<&str>, prompt: &str) -> Vec<ChatMessage> {
     let mut messages = Vec::new();
     if let Some(system) = system {
-        messages.push(ChatMessage::system(system));
+        messages.push(ChatMessage::system(MessageContent::text(system)));
     }
-    messages.push(ChatMessage::user(prompt));
+    messages.push(ChatMessage::user(MessageContent::text(prompt)));
+    messages
+}
+
+pub fn build_messages_with_image(
+    system: Option<&str>,
+    prompt: &str,
+    image_url: &str,
+) -> Vec<ChatMessage> {
+    let mut messages = Vec::new();
+    if let Some(system) = system {
+        messages.push(ChatMessage::system(MessageContent::text(system)));
+    }
+    messages.push(ChatMessage::user_with_text_and_image(prompt, image_url));
     messages
 }
 
