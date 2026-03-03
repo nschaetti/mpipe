@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+chromadb = "2.3.0"
 clap = { version = "4.5", features = ["derive"] }
 clap_complete = "4.5"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "blocking"] }

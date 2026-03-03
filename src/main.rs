@@ -5,6 +5,7 @@ use clap::{CommandFactory, Parser, Subcommand, ValueEnum};
 use clap_complete::{generate, shells};
 use mpipe::commands::ask::{self, AskArgs};
 use mpipe::commands::config::{self, ConfigArgs};
+use mpipe::commands::index::{self, IndexArgs};
 use mpipe::commands::models::{self, ModelsArgs};
 use mpipe::commands::prompt::{self, PromptArgs};
 
@@ -29,6 +30,8 @@ enum Commands {
     Ask(Box<AskArgs>),
     #[command(about = "List known models")]
     Models(ModelsArgs),
+    #[command(about = "Index documents into ChromaDB")]
+    Index(IndexArgs),
     #[command(about = "Prompt tooling")]
     Prompt(PromptArgs),
     #[command(about = "Manage local config")]
@@ -63,6 +66,7 @@ async fn main() {
     let result = match cli.command {
         Commands::Ask(args) => ask::run(*args).await,
         Commands::Models(args) => models::run(args),
+        Commands::Index(args) => index::run(args).await,
         Commands::Prompt(args) => prompt::run(args),
         Commands::Config(args) => config::run(args),
         Commands::Completion { shell } => {

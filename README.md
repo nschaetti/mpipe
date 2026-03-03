@@ -33,6 +33,35 @@ mpipe models --json
 
 `--json` includes `provider`, `id`, `source` (`local`), and `recommended`.
 
+## `mpipe index`
+
+Index a text document into ChromaDB (with optional chunking and metadata).
+
+```bash
+mpipe index --file notes.txt --collection docs --embedding-model accounts/fireworks/models/kimi-k2-instruct-0905
+mpipe index --document "Hello world" --collection scratch --embedding-model accounts/fireworks/models/kimi-k2-instruct-0905
+```
+
+Provide embeddings via stdin (one vector per line, comma-separated):
+
+```bash
+printf "0.1,0.2,0.3\n0.4,0.5,0.6" | mpipe index --file notes.txt --collection docs
+```
+
+When embeddings are not provided via stdin, `mpipe index` uses Fireworks embeddings and requires `FIREWORKS_API_KEY`.
+
+Metadata can be passed as JSON and overridden by `--metadata`:
+
+```bash
+mpipe index --file notes.txt --metadata-json metadata.json --metadata lang=fr --metadata source=manual --embedding-model accounts/fireworks/models/kimi-k2-instruct-0905
+```
+
+ChromaDB connection resolution:
+
+- CLI: `--chroma-url` or `--chroma-host`/`--chroma-port`/`--chroma-scheme`
+- Env: `CHROMA_URL`, `CHROMA_HOST`, `CHROMA_PORT`, `CHROMA_SCHEME`
+- Collection: `--collection` or `CHROMA_COLLECTION` (default `mpipe`)
+
 ### Prompt input
 
 - `mpipe ask "question"` uses the CLI argument as prompt.
