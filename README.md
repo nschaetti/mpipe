@@ -39,8 +39,15 @@ Index a text document into ChromaDB (with optional chunking and metadata).
 
 ```bash
 mpipe index --file notes.txt --collection docs --embedding-model accounts/fireworks/models/kimi-k2-instruct-0905
-mpipe index --document "Hello world" --collection scratch --embedding-model accounts/fireworks/models/kimi-k2-instruct-0905
+mpipe index --document "Hello world" --source "chat://session/42" --collection scratch --embedding-model accounts/fireworks/models/kimi-k2-instruct-0905
+mpipe index --file notes.txt --collection docs --chroma-path ./.chroma --embedding-model accounts/fireworks/models/kimi-k2-instruct-0905
 ```
+
+Source metadata policy:
+
+- `--file`: `source` is auto-filled with the file path (unless `--source` is provided).
+- `--document`: `--source` is required.
+- `--source` always wins over metadata values.
 
 Provide embeddings via stdin (one vector per line, comma-separated):
 
@@ -59,8 +66,29 @@ mpipe index --file notes.txt --metadata-json metadata.json --metadata lang=fr --
 ChromaDB connection resolution:
 
 - CLI: `--chroma-url` or `--chroma-host`/`--chroma-port`/`--chroma-scheme`
-- Env: `CHROMA_URL`, `CHROMA_HOST`, `CHROMA_PORT`, `CHROMA_SCHEME`
+- Local persistent mode: `--chroma-path <dir>` (or env `CHROMA_PATH`) auto-starts `chroma run` and stores data in that directory
+- Env: `CHROMA_URL`, `CHROMA_HOST`, `CHROMA_PORT`, `CHROMA_SCHEME`, `CHROMA_PATH`
 - Collection: `--collection` or `CHROMA_COLLECTION` (default `mpipe`)
+
+Note: `--chroma-url` cannot be combined with `--chroma-path`.
+
+## `mpipe list`
+
+List entries in a collection.
+
+```bash
+mpipe list --collection docs --limit 20
+mpipe list --collection docs --offset 20 --limit 20 --json
+```
+
+## `mpipe grep`
+
+Classic RAG: retrieve top chunks from ChromaDB, then ask the LLM with those chunks as context.
+
+```bash
+mpipe grep --collection docs --embedding-model accounts/fireworks/models/qwen3-embedding-8b --model gpt-4o-mini "What does the retry logic do?"
+mpipe grep --collection docs --top-k 8 --embedding-model accounts/fireworks/models/qwen3-embedding-8b --provider fireworks --model accounts/fireworks/models/kimi-k2-instruct-0905 "Resume this document"
+```
 
 ### Prompt input
 

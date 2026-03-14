@@ -1,7 +1,7 @@
 use assert_cmd::Command;
 use predicates::prelude::PredicateBooleanExt;
 use predicates::str::{contains, is_empty};
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use std::fs;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -657,6 +657,24 @@ fn mpipe_help_mentions_completion_command() {
         .assert()
         .success()
         .stdout(contains("completion").and(contains("Generate shell completion script")));
+}
+
+#[test]
+fn mpipe_help_mentions_grep_and_list_commands() {
+    mpipe_cmd()
+        .arg("--help")
+        .assert()
+        .success()
+        .stdout(contains("grep").and(contains("list")));
+}
+
+#[test]
+fn mpipe_index_document_requires_source() {
+    mpipe_cmd()
+        .args(["index", "--document", "hello", "--embedding-model", "dummy"])
+        .assert()
+        .failure()
+        .stderr(contains("--source is required when using --document."));
 }
 
 #[test]

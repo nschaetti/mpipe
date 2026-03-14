@@ -55,9 +55,7 @@ impl MessageContent {
 
     pub fn with_image(text: impl Into<String>, image_url: impl Into<String>) -> Self {
         Self::Multi(vec![
-            ContentPart::Text {
-                text: text.into(),
-            },
+            ContentPart::Text { text: text.into() },
             ContentPart::ImageUrl {
                 image_url: ImageUrl {
                     url: image_url.into(),
@@ -76,15 +74,13 @@ impl MessageContent {
     pub fn text_len(&self) -> usize {
         match self {
             Self::Simple(s) => s.chars().count(),
-            Self::Multi(parts) => {
-                parts
-                    .iter()
-                    .map(|part| match part {
-                        ContentPart::Text { text } => text.chars().count(),
-                        ContentPart::ImageUrl { .. } => 0,
-                    })
-                    .sum()
-            }
+            Self::Multi(parts) => parts
+                .iter()
+                .map(|part| match part {
+                    ContentPart::Text { text } => text.chars().count(),
+                    ContentPart::ImageUrl { .. } => 0,
+                })
+                .sum(),
         }
     }
 }
@@ -93,9 +89,7 @@ impl MessageContent {
 #[serde(tag = "type")]
 pub enum ContentPart {
     #[serde(rename = "text")]
-    Text {
-        text: String,
-    },
+    Text { text: String },
     #[serde(rename = "image_url")]
     ImageUrl {
         #[serde(rename = "image_url")]
@@ -174,8 +168,7 @@ pub fn resolve_image_url(input: &str) -> Result<String, String> {
         "application/octet-stream"
     };
 
-    let data = std::fs::read(path)
-        .map_err(|e| format!("Failed to read image file: {}", e))?;
+    let data = std::fs::read(path).map_err(|e| format!("Failed to read image file: {}", e))?;
 
     let base64 = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &data);
     Ok(format!("data:{};base64,{}", mime, base64))

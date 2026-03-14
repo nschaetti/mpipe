@@ -263,6 +263,19 @@ fn embed_chunks(
     }
 }
 
+pub fn embed_chunks_with_provider(
+    provider: EmbeddingProvider,
+    model: &str,
+    chunks: &[String],
+) -> Result<Vec<Vec<f64>>, Box<dyn Error + Send + Sync>> {
+    let config = EmbeddingsConfig {
+        provider,
+        model: model.to_string(),
+        ..EmbeddingsConfig::default()
+    };
+    embed_chunks(&config, chunks)
+}
+
 impl EmbeddingsConfig {
     fn api_key(&self) -> Result<String, Box<dyn Error + Send + Sync>> {
         let env_key = match self.provider {

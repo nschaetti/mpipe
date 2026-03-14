@@ -1,13 +1,18 @@
+
+
 use std::io;
 use std::process;
 
 use clap::{CommandFactory, Parser, Subcommand, ValueEnum};
 use clap_complete::{generate, shells};
+
 use mpipe::commands::ask::{self, AskArgs};
 use mpipe::commands::config::{self, ConfigArgs};
-use mpipe::commands::index::{self, IndexArgs};
 use mpipe::commands::download::{self, DownloadArgs};
 use mpipe::commands::embed::{self, EmbedArgs};
+use mpipe::commands::grep::{self, GrepArgs};
+use mpipe::commands::index::{self, IndexArgs};
+use mpipe::commands::list::{self, ListArgs};
 use mpipe::commands::models::{self, ModelsArgs};
 use mpipe::commands::prompt::{self, PromptArgs};
 
@@ -34,6 +39,10 @@ enum Commands {
     Models(ModelsArgs),
     #[command(about = "Index documents into ChromaDB")]
     Index(IndexArgs),
+    #[command(about = "Retrieve and answer from ChromaDB (classic RAG)")]
+    Grep(Box<GrepArgs>),
+    #[command(about = "List entries in a ChromaDB collection")]
+    List(ListArgs),
     #[command(about = "Prompt tooling")]
     Prompt(PromptArgs),
     #[command(about = "Generate text embeddings")]
@@ -73,6 +82,8 @@ async fn main() {
         Commands::Ask(args) => ask::run(*args).await,
         Commands::Models(args) => models::run(args),
         Commands::Index(args) => index::run(args).await,
+        Commands::Grep(args) => grep::run(*args).await,
+        Commands::List(args) => list::run(args).await,
         Commands::Prompt(args) => prompt::run(args),
         Commands::Embed(args) => embed::run(args),
         Commands::Download(args) => download::run(args),

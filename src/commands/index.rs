@@ -3,12 +3,12 @@ use std::fs;
 use std::io::{self, IsTerminal, Read};
 use std::path::{Path, PathBuf};
 
-use clap::Args;
-use chromadb::client::{ChromaAuthMethod, ChromaClient, ChromaClientOptions};
 use chromadb::collection::CollectionEntries;
+use clap::Args;
 use serde_json::{Map, Value};
 
-use crate::rchain::embeddings::FireworksEmbeddings;
+use crate::commands::chroma::{self, ChromaConnectArgs};
+use crate::rchain::embeddings::{EmbeddingProvider, embed_chunks_with_provider};
 
 const DEFAULT_COLLECTION: &str = "mpipe";
 const DEFAULT_CHUNK_SIZE: usize = 1000;
@@ -34,17 +34,11 @@ pub struct IndexArgs {
     #[arg(long)]
     collection: Option<String>,
 
-    #[arg(long = "chroma-url")]
-    chroma_url: Option<String>,
+    #[command(flatten)]
+    chroma: ChromaConnectArgs,
 
-    #[arg(long = "chroma-host")]
-    chroma_host: Option<String>,
-
-    #[arg(long = "chroma-port")]
-    chroma_port: Option<u16>,
-
-    #[arg(long = "chroma-scheme")]
-    chroma_scheme: Option<String>,
+    #[arg(long = "source")]
+    source: Option<String>,
 
     #[arg(long = "id-prefix")]
     id_prefix: Option<String>,
@@ -91,22 +85,16 @@ pub async fn run(args: IndexArgs) -> Result<(), String> {
         validate_embeddings_dimensions(&vectors)?;
         vectors
     } else {
-        let model = args
-            .embedding_model
-            .as_ref()
-            .ok_or_else(|| "Missing --embedding-model (required when stdin embeddings are not provided).".to_string())?;
+        let model = args.embedding_model.as_ref().ok_or_else(|| {
+            "Missing --embedding-model (required when stdin embeddings are not provided)."
+                .to_string()
+        })?;
         embed_chunks(model, &chunks).await?
     };
+    let source = resolve_source(&args)?;
 
     let collection_name = resolve_collection_name(args.collection.as_deref());
-    let chroma_url = resolve_chroma_url(&args)?;
-    let client = ChromaClient::new(ChromaClientOptions {
-        url: chroma_url,
-        auth: ChromaAuthMethod::None,
-        database: "default_database".to_string(),
-    })
-    .await
-    .map_err(|err| format!("Failed to connect to ChromaDB: {err}"))?;
+    let (client, _local_chroma) = chroma::connect(&args.chroma).await?;
 
     let collection = client
         .get_or_create_collection(&collection_name, None)
@@ -119,8 +107,11 @@ pub async fn run(args: IndexArgs) -> Result<(), String> {
 
     let chunk_count = chunks.len();
     let ids = build_ids(args.id_prefix.as_deref(), &args, chunk_count)?;
-    let documents = chunks.iter().map(|chunk| chunk.text.as_str()).collect::<Vec<_>>();
-    let metadatas = build_chunk_metadatas(&chunks, &base_metadata, &args, chunk_count);
+    let documents = chunks
+        .iter()
+        .map(|chunk| chunk.text.as_str())
+        .collect::<Vec<_>>();
+    let metadatas = build_chunk_metadatas(&chunks, &base_metadata, &source, chunk_count);
 
     let collection_entries = CollectionEntries {
         ids: ids.iter().map(|id| id.as_str()).collect(),
@@ -134,7 +125,10 @@ pub async fn run(args: IndexArgs) -> Result<(), String> {
         .await
         .map_err(|err| format!("Failed to upsert into collection '{collection_name}': {err}"))?;
 
-    println!("indexed {} chunks into collection '{}'", chunk_count, collection_name);
+    println!(
+        "indexed {} chunks into collection '{}'",
+        chunk_count, collection_name
+    );
     Ok(())
 }
 
@@ -145,7 +139,25 @@ fn validate_inputs(args: &IndexArgs) -> Result<(), String> {
     if args.file.is_none() && args.document.is_none() {
         return Err("Missing input: provide --file or --document.".to_string());
     }
+    if args.document.is_some() && args.source.is_none() {
+        return Err("--source is required when using --document.".to_string());
+    }
+    if let Some(source) = &args.source
+        && source.trim().is_empty()
+    {
+        return Err("--source cannot be empty.".to_string());
+    }
     Ok(())
+}
+
+fn resolve_source(args: &IndexArgs) -> Result<String, String> {
+    if let Some(source) = &args.source {
+        return Ok(source.trim().to_string());
+    }
+    if let Some(path) = &args.file {
+        return Ok(path.display().to_string());
+    }
+    Err("--source is required when input is not a file.".to_string())
 }
 
 fn read_document(args: &IndexArgs) -> Result<String, String> {
@@ -252,7 +264,9 @@ fn validate_embeddings_dimensions(embeddings: &[Vec<f32>]) -> Result<(), String>
         if vector.len() != expected {
             return Err(format!(
                 "Embedding dimension mismatch at index {} (expected {}, got {}).",
-                idx, expected, vector.len()
+                idx,
+                expected,
+                vector.len()
             ));
         }
     }
@@ -267,15 +281,12 @@ async fn embed_chunks(model: &str, chunks: &[Chunk]) -> Result<Vec<Vec<f32>>, St
         .collect::<Vec<_>>();
 
     tokio::task::spawn_blocking(move || {
-        let embedder = FireworksEmbeddings::new(model)
-            .map_err(|err| format!("Failed to init Fireworks embeddings: {err}"))?;
-        let mut embeddings = Vec::with_capacity(chunk_texts.len());
-        for chunk in chunk_texts {
-            let vector = embedder
-                .embed_query(chunk)
-                .map_err(|err| format!("Failed to embed chunk: {err}"))?;
-            embeddings.push(vector.into_iter().map(|value| value as f32).collect());
-        }
+        let embeddings =
+            embed_chunks_with_provider(EmbeddingProvider::Fireworks, &model, &chunk_texts)
+                .map_err(|err| format!("Failed to embed chunks: {err}"))?
+                .into_iter()
+                .map(|vector| vector.into_iter().map(|value| value as f32).collect())
+                .collect();
         Ok::<_, String>(embeddings)
     })
     .await
@@ -300,47 +311,6 @@ fn resolve_collection_name(cli_collection: Option<&str>) -> String {
     DEFAULT_COLLECTION.to_string()
 }
 
-fn resolve_chroma_url(args: &IndexArgs) -> Result<Option<String>, String> {
-    if let Some(url) = &args.chroma_url {
-        let trimmed = url.trim();
-        if trimmed.is_empty() {
-            return Err("--chroma-url cannot be empty".to_string());
-        }
-        return Ok(Some(trimmed.to_string()));
-    }
-
-    let scheme = args
-        .chroma_scheme
-        .clone()
-        .or_else(|| env::var("CHROMA_SCHEME").ok());
-    let host = args
-        .chroma_host
-        .clone()
-        .or_else(|| env::var("CHROMA_HOST").ok());
-    let port = args.chroma_port.or_else(|| {
-        env::var("CHROMA_PORT")
-            .ok()
-            .and_then(|value| value.trim().parse::<u16>().ok())
-    });
-
-    if scheme.is_none() && host.is_none() && port.is_none() {
-        return Ok(None);
-    }
-
-    if let Some(host) = host.clone()
-        && host.contains("://")
-        && scheme.is_none()
-        && port.is_none()
-    {
-        return Ok(Some(host));
-    }
-
-    let scheme = scheme.unwrap_or_else(|| "http".to_string());
-    let host = host.unwrap_or_else(|| "localhost".to_string());
-    let port = port.unwrap_or(8000);
-    Ok(Some(format!("{scheme}://{host}:{port}")))
-}
-
 fn load_metadata_json(path: Option<&Path>) -> Result<Map<String, Value>, String> {
     let Some(path) = path else {
         return Ok(Map::new());
@@ -349,12 +319,9 @@ fn load_metadata_json(path: Option<&Path>) -> Result<Map<String, Value>, String>
         .map_err(|err| format!("Failed to read metadata JSON '{}': {err}", path.display()))?;
     let value: Value = serde_json::from_str(&raw)
         .map_err(|err| format!("Failed to parse metadata JSON '{}': {err}", path.display()))?;
-    let map = value.as_object().ok_or_else(|| {
-        format!(
-            "Metadata JSON '{}' must be a JSON object.",
-            path.display()
-        )
-    })?;
+    let map = value
+        .as_object()
+        .ok_or_else(|| format!("Metadata JSON '{}' must be a JSON object.", path.display()))?;
     Ok(map.clone())
 }
 
@@ -418,21 +385,15 @@ fn build_ids(
 fn build_chunk_metadatas(
     chunks: &[Chunk],
     base: &Map<String, Value>,
-    args: &IndexArgs,
+    source: &str,
     chunk_count: usize,
 ) -> Vec<Map<String, Value>> {
-    let source = if let Some(path) = &args.file {
-        path.display().to_string()
-    } else {
-        "document".to_string()
-    };
-
     chunks
         .iter()
         .enumerate()
         .map(|(index, chunk)| {
             let mut metadata = base.clone();
-            metadata.insert("source".to_string(), Value::String(source.clone()));
+            metadata.insert("source".to_string(), Value::String(source.to_string()));
             metadata.insert("chunk_index".to_string(), Value::from(index));
             metadata.insert("chunk_count".to_string(), Value::from(chunk_count));
             metadata.insert("char_start".to_string(), Value::from(chunk.char_start));
