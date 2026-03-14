@@ -70,8 +70,9 @@ pub struct AskArgs {
     #[arg(long)]
     system: Option<String>,
 
+    /// Prefix added to the beginning of the prompt.
     #[arg(long)]
-    prompt: Option<String>,
+    preprompt: Option<String>,
 
     #[arg(long)]
     postprompt: Option<String>,
@@ -79,7 +80,9 @@ pub struct AskArgs {
     #[arg(long)]
     image: Option<String>,
 
-    input: Option<String>,
+    /// Main prompt
+    #[arg(short = 'p', long = "prompt")]
+    prompt: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -160,14 +163,14 @@ struct VerboseContext<'a> {
     options: &'a AskOptions,
 }
 
-pub async fn run(cli: AskArgs) -> Result<(), String> {
+pub async fn run(cli: AskArgs) -> Result<(), String>
+{
     if cli.version {
         println!("{}", render_version());
         return Ok(());
     }
 
     let profile = resolve_profile(cli.profile.as_deref())?;
-
     let provider = resolve_provider(cli.provider, &profile)?;
     let model = resolve_model(cli.model, &profile)?;
     let temperature = resolve_temperature(cli.temperature, &profile)?;
@@ -187,13 +190,13 @@ pub async fn run(cli: AskArgs) -> Result<(), String> {
         retry_delay_ms,
     };
 
-    let main_prompt = resolve_prompt(cli.input)?;
+    let main_prompt = resolve_prompt(cli.prompt)?;
     let prompt = compose_prompt(
-        cli.prompt.as_deref(),
+        cli.preprompt.as_deref(),
         &main_prompt.text,
         cli.postprompt.as_deref(),
     );
-
+    println!("prompt = \"{}\"", prompt);
     let messages = if let Some(image_input) = &cli.image {
         let resolved_url = provider::resolve_image_url(image_input)
             .map_err(|e| format!("Failed to resolve image: {}", e))?;
@@ -345,6 +348,11 @@ fn write_output(path: &Path, content: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// Resolve profile
+///
+/// # Arguments
+///
+/// * `profile_name` - Profile name
 fn resolve_profile(profile_name: Option<&str>) -> Result<ProfileConfig, String> {
     match profile_name {
         Some(name) => config::load_profile(name),

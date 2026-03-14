@@ -16,9 +16,18 @@ use mpipe::commands::list::{self, ListArgs};
 use mpipe::commands::models::{self, ModelsArgs};
 use mpipe::commands::prompt::{self, PromptArgs};
 
-const ROOT_HELP_EXAMPLES: &str = "Examples:\n  mpipe ask --provider fireworks --model accounts/fireworks/models/kimi-k2-instruct-0905 \"2+2?\"\n  echo \"2+2?\" | mpipe ask --provider openai --model gpt-4o-mini\n  mpipe models --provider fireworks\n  mpipe prompt render --prompt \"You are concise\" \"Explain retries\"\n  mpipe config check\n  mpipe completion bash > ~/.local/share/bash-completion/completions/mpipe";
+const ROOT_HELP_EXAMPLES: &str = "Examples:\n\
+  mpipe ask --provider fireworks --model accounts/fireworks/models/kimi-k2-instruct-0905 \"2+2?\"\n\
+  echo \"2+2?\" | mpipe ask --provider openai --model gpt-4o-mini\n\
+  mpipe models --provider fireworks\n\
+  mpipe prompt render --prompt \"You are concise\" \"Explain retries\"\n\
+  mpipe config check\n\
+  mpipe completion bash > ~/.local/share/bash-completion/completions/mpipe";
 
-const ASK_HELP_EXAMPLES: &str = "Examples:\n  mpipe ask --provider fireworks --model accounts/fireworks/models/kimi-k2-instruct-0905 \"2+2?\"\n  echo \"2+2?\" | mpipe ask --provider openai --model gpt-4o-mini\n  mpipe ask --provider fireworks --model accounts/fireworks/models/kimi-k2-instruct-0905 --dry-run --json \"Explain retries\"";
+const ASK_HELP_EXAMPLES: &str = "Examples:\n\
+  mpipe ask --provider fireworks --model accounts/fireworks/models/kimi-k2-instruct-0905 \"2+2?\"\n\
+  echo \"2+2?\" | mpipe ask --provider openai --model gpt-4o-mini\n\
+  mpipe ask --provider fireworks --model accounts/fireworks/models/kimi-k2-instruct-0905 --dry-run --json \"Explain retries\"";
 
 #[derive(Debug, Parser)]
 #[command(

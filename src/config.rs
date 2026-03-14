@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 
+/// Default put None
 #[derive(Debug, Clone, Deserialize, Default)]
 pub struct ProfileConfig {
     pub provider: Option<String>,
@@ -47,6 +48,7 @@ struct ConfigFile {
     providers: Option<HashMap<String, ProviderSectionConfig>>,
 }
 
+/// Load profile configuration from the default config file.
 pub fn load_profile(name: &str) -> Result<ProfileConfig, String> {
     let (path, config) = load_and_validate_config_file()?;
     let profile = profile_from_config(&config, &path, name)?.clone();

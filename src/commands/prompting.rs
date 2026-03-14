@@ -80,7 +80,9 @@ pub fn compose_prompt(
     parts.join("\n\n")
 }
 
-pub fn resolve_prompt(cli_prompt: Option<String>) -> Result<PromptInput, String> {
+pub fn resolve_prompt(cli_prompt: Option<String>) -> Result<PromptInput, String>
+{
+    // Get main prompt from argument
     if let Some(prompt) = cli_prompt {
         return Ok(PromptInput {
             text: prompt,
@@ -88,15 +90,18 @@ pub fn resolve_prompt(cli_prompt: Option<String>) -> Result<PromptInput, String>
         });
     }
 
+    // is_terminal ??
     if io::stdin().is_terminal() {
         return Err("No prompt provided. Pass an argument or pipe stdin.".to_string());
     }
 
+    // Read stdin
     let mut buffer = String::new();
     io::stdin()
         .read_to_string(&mut buffer)
         .map_err(|err| format!("Failed to read stdin: {err}"))?;
 
+    // Trim and validate input
     let text = buffer.trim().to_string();
     if text.is_empty() {
         return Err("Prompt is empty.".to_string());

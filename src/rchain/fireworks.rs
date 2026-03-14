@@ -91,6 +91,7 @@ pub async fn ask_messages(
         .json()
         .await
         .map_err(|source| ProviderError::Request { provider, source })?;
+    println!("body: {:?}", body);
     let content = body
         .choices
         .first()

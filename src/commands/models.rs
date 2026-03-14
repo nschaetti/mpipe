@@ -47,6 +47,11 @@ const MODEL_CATALOG: &[ModelEntry] = &[
         recommended: true,
     },
     ModelEntry {
+        provider: "fireworks",
+        id: "accounts/fireworks/models/minimax-m2p5",
+        recommended: true,
+    },
+    ModelEntry {
         provider: "openai",
         id: "gpt-4o-mini",
         recommended: true,
