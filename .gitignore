@@ -28,3 +28,7 @@ target
 # Local workspace files
 .idea/
 flow_matching.md
+
+# Python caches
+__pycache__/
+*.py[cod]
