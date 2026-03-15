@@ -95,8 +95,11 @@ mpipe grep --collection docs --top-k 8 --embedding-model accounts/fireworks/mode
 - `mpipe ask "question"` uses the CLI argument as prompt.
 - `echo "question" | mpipe ask` reads from stdin when no prompt argument is passed.
 - If both are present, the argument takes precedence.
-- `--prompt "..."` prepends a preprompt before the main prompt.
+- `--prompt-file <path>` reads the main prompt from a local file and takes precedence over `--prompt` and stdin.
+- `--preprompt "..."` prepends a preprompt before the main prompt.
+- `--preprompt-file <path>` reads the preprompt from a local file and takes precedence over `--preprompt`.
 - `--postprompt "..."` appends text after the main prompt.
+- `--postprompt-file <path>` reads the postprompt from a local file and takes precedence over `--postprompt`.
 - `--system "..."` adds a system message sent before the user message.
 - When used, segments are joined as `preprompt\n\nmain_prompt\n\npostprompt` (missing segments are skipped).
 

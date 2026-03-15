@@ -11,6 +11,7 @@ pub struct PromptInput {
 #[derive(Debug, Clone, Copy)]
 pub enum PromptSource {
     Argument,
+    File,
     Stdin,
 }
 
@@ -18,6 +19,7 @@ impl PromptSource {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Argument => "argument",
+            Self::File => "file",
             Self::Stdin => "stdin",
         }
     }
@@ -80,8 +82,7 @@ pub fn compose_prompt(
     parts.join("\n\n")
 }
 
-pub fn resolve_prompt(cli_prompt: Option<String>) -> Result<PromptInput, String>
-{
+pub fn resolve_prompt(cli_prompt: Option<String>) -> Result<PromptInput, String> {
     // Get main prompt from argument
     if let Some(prompt) = cli_prompt {
         return Ok(PromptInput {

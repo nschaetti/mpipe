@@ -1,5 +1,3 @@
-
-
 use std::io;
 use std::process;
 
@@ -7,6 +5,7 @@ use clap::{CommandFactory, Parser, Subcommand, ValueEnum};
 use clap_complete::{generate, shells};
 
 use mpipe::commands::ask::{self, AskArgs};
+use mpipe::commands::agent::{self, AgentArgs};
 use mpipe::commands::config::{self, ConfigArgs};
 use mpipe::commands::download::{self, DownloadArgs};
 use mpipe::commands::embed::{self, EmbedArgs};
@@ -44,6 +43,8 @@ struct Cli {
 enum Commands {
     #[command(about = "Ask a question to an LLM provider", after_help = ASK_HELP_EXAMPLES)]
     Ask(Box<AskArgs>),
+    #[command(about = "Run a local agent")]
+    Agent(Box<AgentArgs>),
     #[command(about = "List known models")]
     Models(ModelsArgs),
     #[command(about = "Index documents into ChromaDB")]
@@ -89,6 +90,7 @@ async fn main() {
 
     let result = match cli.command {
         Commands::Ask(args) => ask::run(*args).await,
+        Commands::Agent(args) => agent::run(*args).await,
         Commands::Models(args) => models::run(args),
         Commands::Index(args) => index::run(args).await,
         Commands::Grep(args) => grep::run(*args).await,

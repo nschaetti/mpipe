@@ -1,7 +1,7 @@
 use assert_cmd::Command;
 use predicates::prelude::PredicateBooleanExt;
 use predicates::str::{contains, is_empty};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::fs;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -137,6 +137,127 @@ fn argument_prompt_has_priority_over_stdin() {
         messages[0]["content"],
         Value::String("argument prompt".to_string())
     );
+}
+
+#[test]
+fn prompt_file_has_priority_over_prompt_argument() {
+    let prompt_path = unique_temp_path("prompt-file-over-arg");
+    fs::write(&prompt_path, "from file").expect("prompt file should be writable");
+
+    let assert = mpask_cmd()
+        .args([
+            "--provider",
+            "openai",
+            "--model",
+            "gpt-4o-mini",
+            "--dry-run",
+            "--prompt-file",
+            prompt_path.to_string_lossy().as_ref(),
+            "--prompt",
+            "from argument",
+        ])
+        .assert()
+        .success();
+
+    let body = parse_stdout_json(&assert.get_output().stdout);
+    let messages = body["messages"]
+        .as_array()
+        .expect("messages should be an array");
+    assert_eq!(messages.len(), 1);
+    assert_eq!(messages[0]["role"], Value::String("user".to_string()));
+    assert_eq!(
+        messages[0]["content"],
+        Value::String("from file".to_string())
+    );
+}
+
+#[test]
+fn prompt_file_has_priority_over_stdin() {
+    let prompt_path = unique_temp_path("prompt-file-over-stdin");
+    fs::write(&prompt_path, "from file").expect("prompt file should be writable");
+
+    let assert = mpask_cmd()
+        .args([
+            "--provider",
+            "openai",
+            "--model",
+            "gpt-4o-mini",
+            "--dry-run",
+            "--prompt-file",
+            prompt_path.to_string_lossy().as_ref(),
+        ])
+        .write_stdin("from stdin")
+        .assert()
+        .success();
+
+    let body = parse_stdout_json(&assert.get_output().stdout);
+    let messages = body["messages"]
+        .as_array()
+        .expect("messages should be an array");
+    assert_eq!(messages.len(), 1);
+    assert_eq!(messages[0]["role"], Value::String("user".to_string()));
+    assert_eq!(
+        messages[0]["content"],
+        Value::String("from file".to_string())
+    );
+}
+
+#[test]
+fn preprompt_and_postprompt_file_have_priority_over_inline_values() {
+    let preprompt_path = unique_temp_path("preprompt-file");
+    let postprompt_path = unique_temp_path("postprompt-file");
+    fs::write(&preprompt_path, "pre file").expect("preprompt file should be writable");
+    fs::write(&postprompt_path, "post file").expect("postprompt file should be writable");
+
+    let assert = mpask_cmd()
+        .args([
+            "--provider",
+            "openai",
+            "--model",
+            "gpt-4o-mini",
+            "--dry-run",
+            "--preprompt",
+            "pre inline",
+            "--preprompt-file",
+            preprompt_path.to_string_lossy().as_ref(),
+            "--postprompt",
+            "post inline",
+            "--postprompt-file",
+            postprompt_path.to_string_lossy().as_ref(),
+            "--prompt",
+            "main",
+        ])
+        .assert()
+        .success();
+
+    let body = parse_stdout_json(&assert.get_output().stdout);
+    let messages = body["messages"]
+        .as_array()
+        .expect("messages should be an array");
+    assert_eq!(messages.len(), 1);
+    assert_eq!(
+        messages[0]["content"],
+        Value::String("pre file\n\nmain\n\npost file".to_string())
+    );
+}
+
+#[test]
+fn prompt_file_missing_returns_explicit_error() {
+    let missing_path = unique_temp_path("missing-prompt-file");
+
+    mpask_cmd()
+        .args([
+            "--provider",
+            "openai",
+            "--model",
+            "gpt-4o-mini",
+            "--dry-run",
+            "--prompt-file",
+            missing_path.to_string_lossy().as_ref(),
+        ])
+        .assert()
+        .failure()
+        .stderr(contains("Failed to read --prompt-file"));
 }
 
 #[test]

@@ -1,3 +1,6 @@
+
+pub mod agent;
+
 pub mod ask;
 pub mod chroma;
 pub mod config;

@@ -1,0 +1,13 @@
+Question utilisateur :
+Quelle est la météo à Genève aujourd'hui ?
+
+Appel d'outil précédent :
+CALL meteo("Genève")
+
+Résultat de l'outil :
+{
+  "city": "Genève",
+  "condition": "Nuageux",
+  "temperature_c": 12,
+  "wind_kmh": 9
+}

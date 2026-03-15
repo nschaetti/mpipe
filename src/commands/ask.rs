@@ -8,8 +8,8 @@ use clap::{Args, ValueEnum};
 use serde::Serialize;
 
 use crate::commands::prompting::{
-    PromptSource, build_messages, build_messages_with_image, compose_prompt, non_empty,
-    resolve_prompt,
+    PromptInput, PromptSource, build_messages, build_messages_with_image, compose_prompt,
+    non_empty, resolve_prompt,
 };
 use crate::config::{self, ProfileConfig};
 use crate::rchain::provider::{self, AskOptions, ChatMessage, Provider};
@@ -74,8 +74,14 @@ pub struct AskArgs {
     #[arg(long)]
     preprompt: Option<String>,
 
+    #[arg(long = "preprompt-file")]
+    preprompt_file: Option<PathBuf>,
+
     #[arg(long)]
     postprompt: Option<String>,
+
+    #[arg(long = "postprompt-file")]
+    postprompt_file: Option<PathBuf>,
 
     #[arg(long)]
     image: Option<String>,
@@ -83,6 +89,9 @@ pub struct AskArgs {
     /// Main prompt
     #[arg(short = 'p', long = "prompt")]
     prompt: Option<String>,
+
+    #[arg(long = "prompt-file")]
+    prompt_file: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -163,8 +172,7 @@ struct VerboseContext<'a> {
     options: &'a AskOptions,
 }
 
-pub async fn run(cli: AskArgs) -> Result<(), String>
-{
+pub async fn run(cli: AskArgs) -> Result<(), String> {
     if cli.version {
         println!("{}", render_version());
         return Ok(());
@@ -190,13 +198,23 @@ pub async fn run(cli: AskArgs) -> Result<(), String>
         retry_delay_ms,
     };
 
-    let main_prompt = resolve_prompt(cli.prompt)?;
+    let preprompt = resolve_optional_segment(
+        cli.preprompt,
+        cli.preprompt_file.as_deref(),
+        "--preprompt-file",
+    )?;
+    let main_prompt = resolve_main_prompt(cli.prompt, cli.prompt_file.as_deref())?;
+    let postprompt = resolve_optional_segment(
+        cli.postprompt,
+        cli.postprompt_file.as_deref(),
+        "--postprompt-file",
+    )?;
     let prompt = compose_prompt(
-        cli.preprompt.as_deref(),
+        preprompt.as_deref(),
         &main_prompt.text,
-        cli.postprompt.as_deref(),
+        postprompt.as_deref(),
     );
-    println!("prompt = \"{}\"", prompt);
+
     let messages = if let Some(image_input) = &cli.image {
         let resolved_url = provider::resolve_image_url(image_input)
             .map_err(|e| format!("Failed to resolve image: {}", e))?;
@@ -346,6 +364,47 @@ fn write_output(path: &Path, content: &str) -> Result<(), String> {
     }
 
     Ok(())
+}
+
+fn resolve_optional_segment(
+    cli_value: Option<String>,
+    file_path: Option<&Path>,
+    option_name: &str,
+) -> Result<Option<String>, String> {
+    if let Some(path) = file_path {
+        return read_text_file(path, option_name).map(Some);
+    }
+
+    Ok(cli_value)
+}
+
+fn resolve_main_prompt(
+    cli_prompt: Option<String>,
+    prompt_file: Option<&Path>,
+) -> Result<PromptInput, String> {
+    if let Some(path) = prompt_file {
+        let content = read_text_file(path, "--prompt-file")?;
+        let text = content.trim().to_string();
+        if text.is_empty() {
+            return Err(format!(
+                "{} file '{}' is empty.",
+                "--prompt-file",
+                path.display()
+            ));
+        }
+
+        return Ok(PromptInput {
+            text,
+            source: PromptSource::File,
+        });
+    }
+
+    resolve_prompt(cli_prompt)
+}
+
+fn read_text_file(path: &Path, option_name: &str) -> Result<String, String> {
+    fs::read_to_string(path)
+        .map_err(|err| format!("Failed to read {} '{}': {err}", option_name, path.display()))
 }
 
 /// Resolve profile
