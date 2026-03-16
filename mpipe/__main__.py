@@ -71,6 +71,7 @@ def cli() -> None:
 
 cli.add_command(ask_command)
 cli.add_command(agent_command)
+cli.add_command(chat_command)
 cli.add_command(models_command)
 cli.add_command(index_command)
 cli.add_command(grep_command)

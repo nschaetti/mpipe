@@ -37,6 +37,8 @@ import click
 from mpipe.commands._helpers import (
     _json_line,
     render_version,
+)
+from mpipe.commands.config import (
     resolve_profile,
     resolve_retries,
     resolve_model,

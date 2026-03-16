@@ -91,13 +91,16 @@ TOOLS = [
 
 
 def send_request(
-        messages: list[dict[str, str]],
-        tools: list[dict[str, Any]] = [],
+        message_list: list[dict[str, str]],
+        tool_list=None,
 ):
+    if tool_list is None:
+        tool_list = []
+    # end if
     payload: dict[str, Any] = {
         "model": MODEL,
-        "messages": messages,
-        "tools": tools,
+        "messages": message_list,
+        "tools": tool_list,
         "temperature": TEMPERATURE,
         "max_tokens": MAX_TOKENS,
         "reasoning_effort": "high",
@@ -142,7 +145,16 @@ def send_request(
     return response.json()
 # end def send_request
 
-body = send_request(messages)
+
+def list_directory_tool(path: str) -> list[str]:
+    return os.listdir(path)
+# end def list_directory_tool
+
+
+body = send_request(
+    message_list=messages,
+    tool_list=TOOLS,
+)
 
 if len(body["choices"]) == 0:
     raise RuntimeError("No choices in response.")
@@ -152,20 +164,46 @@ if body['choices'][0]['finish_reason'] == "stop":
     console.print(f"Stop: {body['choices'][0]['message']['content'].strip()}")
 elif body['choices'][0]['finish_reason'] == "tool_calls":
     console.print(f"Tool calls: {body['choices'][0]['message']['tool_calls']}")
+    messages.append({
+        "role": "assistant",
+        "content": "",
+        "tool_calls": body['choices'][0]['message']['tool_calls']
+    })
+    return_tools = []
     for tool_call in body['choices'][0]['message']['tool_calls']:
-        if tool_call['type'] == 'function':
-            if tool_call['function']['name'] == 'list_directory':
-                list_dir_output = os.listdir(tool_call['function']['arguments']['path'])
-
-            elif tool_call['function']['name'] == 'read_file':
-                console.print(f"Read file: {tool_call['function']['arguments']}")
-            elif tool_call['function']['name'] == 'change_directory':
-                console.print(f"Change directory: {tool_call['function']['arguments']}")
+        tool_type = tool_call['type']
+        tool_name = tool_call['function']['name']
+        tool_args = tool_call['function']['arguments']
+        tool_call_id = tool_call['id']
+        if tool_type == 'function':
+            if tool_name == 'list_directory':
+                tool_arg_path = json.loads(tool_args)['path']
+                list_dir_output = list_directory_tool(
+                    path=tool_arg_path,
+                )
+                console.print(f"List directory: {tool_arg_path}\n{pprint(list_dir_output)}")
+                return_tools.append({
+                    "role": "tool",
+                    "tool_call_id": tool_call_id,
+                    "name": tool_name,
+                    "content": json.dumps(list_dir_output),
+                })
+            elif tool_name == 'read_file':
+                console.print(f"Read file: {tool_args}")
+            elif tool_name == 'change_directory':
+                console.print(f"Change directory: {tool_args}")
             else:
                 console.print(f"Unknown tool call: {tool_call}")
             # end if
         # end if
     # end for
+    messages += return_tools
+    pprint(messages)
+    body = send_request(
+        message_list=messages,
+        tool_list=TOOLS,
+    )
+    pprint(body)
 elif body['choices'][0]['finish_reason'] == "function_call":
     console.print(f"Function call: {body['choices'][0]['message']['function_call']}")
 else:
