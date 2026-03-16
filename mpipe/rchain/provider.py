@@ -28,7 +28,9 @@ import base64
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Any
+from typing import Any, List
+
+from mpipe.logging import LogConfig
 
 
 class Provider(str, Enum):
@@ -260,7 +262,7 @@ class MessageContent:
 @dataclass(slots=True)
 class ChatMessage:
     """
-    Chatmessage.
+    Chat message.
 
     Notes
     -----
@@ -268,6 +270,7 @@ class ChatMessage:
     """
     role: str
     content: MessageContent
+    reasoning_content: str | None = None
 
     @classmethod
     def system(cls, content: MessageContent | str) -> "ChatMessage":
@@ -358,7 +361,7 @@ class ChatMessage:
         dict[str, Any]
             Returned value.
         """
-        return {"role": self.role, "content": self.content.to_json()}
+        return {"role": self.role, "content": self.content.to_json(), "reasoning_content": self.reasoning_content}
     # end def to_json
 # end class ChatMessage
 
@@ -436,16 +439,31 @@ class Usage:
 
 
 @dataclass(slots=True)
-class AskResponse:
-    """Askresponse.
+class ResponseChoice:
+    """Responsechoice."""
+    index: int
+    message: ChatMessage
+    finish_reason: str | None = None
+    token_ids: list[int] | None = None
+# end class ResponseChoice
+
+
+@dataclass(slots=True)
+class ChatResponse:
+    """
+    Chat response.
 
     Notes
     -----
     This class follows the same role and hierarchy as the Rust implementation.
     """
-    content: str
+    response_id: str
+    object: str
+    created: int
+    model: str
+    choices: List[ResponseChoice]
     usage: Usage | None = None
-# end class AskResponse
+# end class ChatResponse
 
 
 class ProviderError(Exception):
@@ -576,11 +594,12 @@ class EmptyResponseError(ProviderError):
 
 
 async def ask(
-    provider: Provider,
-    model: str,
-    messages: list[ChatMessage],
-    options: AskOptions,
-) -> AskResponse:
+        provider: Provider,
+        model: str,
+        messages: list[ChatMessage],
+        options: AskOptions,
+        log_config: LogConfig | None = None,
+) -> ChatResponse:
     """Ask.
 
     Parameters
@@ -593,16 +612,18 @@ async def ask(
         Argument value.
     options : AskOptions
         Argument value.
+    log_config : LogConfig
+        Argument value.
 
     Returns
     -------
-    AskResponse
+    ChatResponse
         Returned value.
     """
     from mpipe.rchain import fireworks, openai
 
     if provider == Provider.OPENAI:
-        return await openai.ask_messages(messages, model, options)
+        return await openai.ask_messages(messages, model, options, log_config)
     # end if
-    return await fireworks.ask_messages(messages, model, options)
+    return await fireworks.ask_messages(messages, model, options, log_config)
 # end def ask

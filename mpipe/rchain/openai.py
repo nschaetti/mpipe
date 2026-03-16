@@ -29,6 +29,7 @@ from typing import Any
 
 import requests
 
+from mpipe.logging import LogConfig
 from mpipe.rchain.chat_runtime import (
     RequestFailureApi,
     RequestFailureRequest,
@@ -38,7 +39,7 @@ from mpipe.rchain.chat_runtime import (
 from mpipe.rchain.provider import (
     ApiError,
     AskOptions,
-    AskResponse,
+    ChatResponse,
     ChatMessage,
     EmptyResponseError,
     MissingApiKeyError,
@@ -76,7 +77,8 @@ async def ask_messages(
     messages: list[ChatMessage],
     model: str,
     options: AskOptions,
-) -> AskResponse:
+    log_config: LogConfig | None = None,
+) -> ChatResponse:
     """Ask messages.
 
     Parameters
@@ -90,9 +92,10 @@ async def ask_messages(
 
     Returns
     -------
-    AskResponse
+    ChatResponse
         Returned value.
     """
+    _ = log_config
     provider = Provider.OPENAI
     key_env = api_key_env(provider)
     api_key = os.getenv(key_env)
@@ -151,7 +154,7 @@ async def ask_messages(
         if isinstance(usage_payload, dict)
         else None
     )
-    return AskResponse(content=content, usage=usage)
+    return ChatResponse(content=content, usage=usage)
 # end def ask_messages
 
 

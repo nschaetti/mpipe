@@ -25,10 +25,13 @@ This module is part of the Python port of the `mpipe` project.
 from __future__ import annotations
 
 import os
-from typing import Any
+from typing import Any, Dict, List
 
 import requests
+from rich.pretty import pprint
+from rich.console import Console
 
+from mpipe.logging import LogConfig, LogLevels
 from mpipe.rchain.chat_runtime import (
     RequestFailureApi,
     RequestFailureRequest,
@@ -38,15 +41,18 @@ from mpipe.rchain.chat_runtime import (
 from mpipe.rchain.provider import (
     ApiError,
     AskOptions,
-    AskResponse,
+    ChatResponse,
     ChatMessage,
     EmptyResponseError,
     MissingApiKeyError,
     Provider,
     RequestError,
     Usage,
-    api_key_env,
+    api_key_env, ResponseChoice,
 )
+
+
+console = Console()
 
 
 FIREWORKS_CHAT_COMPLETIONS_URL = "https://api.fireworks.ai/inference/v1/chat/completions"
@@ -73,11 +79,13 @@ async def ask(prompt: str, model: str) -> str:
 
 
 async def ask_messages(
-    messages: list[ChatMessage],
-    model: str,
-    options: AskOptions,
-) -> AskResponse:
-    """Ask messages.
+        messages: list[ChatMessage],
+        model: str,
+        options: AskOptions,
+        log_config: LogConfig | None = None,
+) -> ChatResponse:
+    """
+    Ask messages.
 
     Parameters
     ----------
@@ -87,10 +95,12 @@ async def ask_messages(
         Argument value.
     options : AskOptions
         Argument value.
+    log_config : LogConfig
+        Argument value.
 
     Returns
     -------
-    AskResponse
+    ChatResponse
         Returned value.
     """
     provider = Provider.FIREWORKS
@@ -136,10 +146,29 @@ async def ask_messages(
         raise RequestError(provider, err) from err
     # end try
 
-    content = _extract_content(body)
-    if not content:
+    level = log_config.level if log_config is not None else LogLevels.NORMAL
+    if level >= LogLevels.VERBOSE:
+        console.print(f"[bold green]Fireworks API response:[/bold green]")
+        pprint(body)
+    # end if
+
+    # Extract response information
+    res_id, obj, created, model = _extract_response_info(body)
+
+    # Check we have choices
+    if len(body.get("choices", [])) == 0:
         raise EmptyResponseError(provider)
     # end if
+
+    # Extract content from the response
+    contents: List[ResponseChoice] = []
+    for choice in body.get("choices", []):
+        content = _extract_message(choice)
+        contents.append(content)
+        if content:
+            break
+        # end if
+    # end for
 
     usage_payload = body.get("usage") if isinstance(body, dict) else None
     usage = (
@@ -151,14 +180,53 @@ async def ask_messages(
         if isinstance(usage_payload, dict)
         else None
     )
-    return AskResponse(
-        content=content,
+    return ChatResponse(
+        response_id=res_id,
+        object=obj,
+        created=int(created),
+        model=model,
+        choices=contents,
         usage=usage
     )
 # end def ask_messages
 
 
-def _extract_content(body: Any) -> str:
+def _extract_response_info(body: Any) -> tuple[str, str, str, str]:
+    """Extract response info."""
+    return (
+        body.get("id"),
+        body.get("object"),
+        body.get("created"),
+        body.get("model")
+    )
+# end def extract_response_info
+
+
+def _extract_message(choice: Dict[str, Any]) -> ResponseChoice:
+    """ extract message."""
+    if not isinstance(choice, dict):
+        raise ValueError("Invalid choice")
+    # end if
+
+    if "message" not in choice:
+        raise ValueError("Invalid choice")
+    # end if
+
+    response_message = ChatMessage(
+        role=choice.get("message").get("role"),
+        content=choice.get("message").get("content"),
+        reasoning_content=choice.get("message").get("reasoning_content", None)
+    )
+
+    return ResponseChoice(
+        index=choice.get("index"),
+        message=response_message,
+        finish_reason=choice.get("finish_reason"),
+    )
+# end def _extract_message
+
+
+def _extract_content(body: Any, choice_ix: int) -> str:
     """ extract content.
 
     Parameters
@@ -178,7 +246,7 @@ def _extract_content(body: Any) -> str:
     if not isinstance(choices, list) or not choices:
         return ""
     # end if
-    first = choices[0]
+    first = choices[choice_ix]
     if not isinstance(first, dict):
         return ""
     # end if

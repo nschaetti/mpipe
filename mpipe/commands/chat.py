@@ -29,7 +29,22 @@ from typing import Any
 
 import click
 
-from mpipe.commands._helpers import _json_line, render_version, resolve_profile
+from mpipe.commands._helpers import _json_line, render_version
+from mpipe.commands.ask import UsageData
+from mpipe.commands.config import (
+    resolve_profile,
+    resolve_retries,
+    resolve_model,
+    resolve_provider,
+    resolve_timeout,
+    resolve_system,
+    resolve_temperature,
+    resolve_max_tokens,
+    resolve_output_format,
+    resolve_show_usage,
+    resolve_retry_delay,
+)
+from mpipe.logging import LogConfig, LogLevels
 from mpipe.commands.prompting import (
     PromptInput,
     PromptSource,
@@ -42,7 +57,7 @@ from mpipe.commands.prompting import (
 from mpipe.config import ProfileConfig, load_profile
 from mpipe.console import console, err_console, print_json
 from mpipe.rchain import provider
-from mpipe.rchain.provider import AskOptions, ChatMessage, Provider
+from mpipe.rchain.provider import AskOptions, ChatMessage, Provider, MessageContent
 
 
 @click.command("chat")
@@ -55,42 +70,28 @@ from mpipe.rchain.provider import AskOptions, ChatMessage, Provider
 @click.option("--timeout", type=int)
 @click.option("--retries", type=int)
 @click.option("--retry-delay", type=int)
-@click.option("--show-usage", is_flag=True)
-@click.option("--verbose", is_flag=True)
 @click.option("--fail-on-empty", is_flag=True)
-@click.option("--system")
+@click.option("-v", "--verbose", count=True, help="Verbosity level")
 def chat_command(**kwargs: Any) -> None:
     """
     Chat command.
     """
-    try:
-        _run_chat(**kwargs)
-    except Exception as err:
-        err_console.print(str(err), style="red")
-        raise SystemExit(1)
-    # end try
+    _run_chat(**kwargs)
 # end def chat_command
 
 
 def _run_chat(
-    show_version: bool,
-    profile: str | None,
-    provider_name: str | None,
-    model: str | None,
-    temperature: float | None,
-    max_tokens: int | None,
-    timeout: int | None,
-    retries: int | None,
-    retry_delay: int | None,
-    output: str | None,
-    json_output: bool,
-    show_usage: bool,
-    quiet: bool,
-    verbose: bool,
-    dry_run: bool,
-    fail_on_empty: bool,
-    save: Path | None,
-    system: str | None,
+        show_version: bool,
+        profile: str | None,
+        provider_name: str | None,
+        model: str | None,
+        temperature: float | None,
+        max_tokens: int | None,
+        timeout: int | None,
+        retries: int | None,
+        retry_delay: int | None,
+        fail_on_empty: bool,
+        verbose: int = 0,
 ) -> None:
     """ run ask.
 
@@ -114,23 +115,7 @@ def _run_chat(
         Argument value.
     retry_delay : int | None
         Argument value.
-    output : str | None
-        Argument value.
-    json_output : bool
-        Argument value.
-    show_usage : bool
-        Argument value.
-    quiet : bool
-        Argument value.
-    verbose : bool
-        Argument value.
-    dry_run : bool
-        Argument value.
-    fail_on_empty : bool
-        Argument value.
-    save : Path | None
-        Argument value.
-    system : str | None
+    verbose : int
         Argument value.
 
     Returns
@@ -151,10 +136,13 @@ def _run_chat(
     timeout_secs = resolve_timeout(timeout, profile_cfg)
     retry_count = resolve_retries(retries, profile_cfg)
     retry_delay_ms = resolve_retry_delay(retry_delay, profile_cfg)
-    output_format = resolve_output_format(output, json_output, profile_cfg)
-    resolved_show_usage = resolve_show_usage(show_usage, profile_cfg)
-    resolved_system = resolve_system(system, profile_cfg)
 
+    # Verbosity options
+    log_options = LogConfig(
+        level=LogLevels(verbose)
+    )
+
+    # Ask options
     options = AskOptions(
         temperature=resolved_temperature,
         max_tokens=resolved_max_tokens,
@@ -163,103 +151,45 @@ def _run_chat(
         retry_delay_ms=retry_delay_ms,
     )
 
-    main_prompt = resolve_main_prompt(prompt, input_prompt, prompt_file)
-    final_prompt = main_prompt.text
+    # Chat on
+    chat_on = True
 
-    if image is not None:
-        resolved_url = provider.resolve_image_url(image)
-        messages = build_messages_with_image(non_empty(resolved_system), final_prompt, resolved_url)
-    else:
-        messages = build_messages(non_empty(resolved_system), final_prompt)
-    # end if
+    # List of messages
+    messages: list[ChatMessage] = []
 
-    if verbose and not quiet:
-        log_verbose(
-            selected_provider,
-            selected_model,
-            output_format,
-            dry_run,
-            resolved_show_usage,
-            main_prompt.source,
-            messages,
-            options,
-        )
-    # end if
+    while chat_on:
+        # Ask prompt
+        print(">> ", end="")
+        chat_input = input()
 
-    if dry_run:
-        payload = {
-            "dry_run": True,
-            "provider": selected_provider.as_str(),
-            "endpoint": provider.endpoint(selected_provider),
-            "model": selected_model,
-            "messages": [message.to_json() for message in messages],
-            "request": {
-                "temperature": resolved_temperature,
-                "max_tokens": resolved_max_tokens,
-                "timeout_secs": timeout_secs,
-                "retries": retry_count,
-                "retry_delay_ms": retry_delay_ms,
-            },
-            "output": output_format,
-            "show_usage": resolved_show_usage,
-            "authorization": "Bearer ***REDACTED***",
-        }
-        rendered = _json_line(payload)
-        console.print(rendered, markup=False)
-        if save is not None:
-            write_output(save, rendered + "\n")
+        # Add messages
+        messages.append(ChatMessage(role="user", content=MessageContent.text(chat_input)))
+
+        # Send message to LLM
+        response = asyncio.run(provider.ask(selected_provider, selected_model, messages, options, log_options))
+
+        if log_options.level.value >= LogLevels.DEBUG.value:
+            console.print(f"Fireworks API response: {response}")
         # end if
-        if resolved_show_usage and not quiet:
-            err_console.print("usage: unavailable latency_ms=0 (dry-run)")
+
+        if fail_on_empty and not response.content.strip():
+            raise ValueError("Model response is empty and --fail-on-empty is enabled.")
         # end if
-        return
-    # end if
 
-    start = time.perf_counter()
-    response = asyncio.run(provider.ask(selected_provider, selected_model, messages, options))
-    latency_ms = int((time.perf_counter() - start) * 1000)
+        if response.usage is not None:
+            usage = UsageData(
+                prompt_tokens=response.usage.prompt_tokens,
+                completion_tokens=response.usage.completion_tokens,
+                total_tokens=response.usage.total_tokens,
+            )
+        # end if
 
-    if fail_on_empty and not response.content.strip():
-        raise ValueError("Model response is empty and --fail-on-empty is enabled.")
-    # end if
-
-    usage = None
-    if response.usage is not None:
-        usage = UsageData(
-            prompt_tokens=response.usage.prompt_tokens,
-            completion_tokens=response.usage.completion_tokens,
-            total_tokens=response.usage.total_tokens,
-        )
-    # end if
-
-    if resolved_show_usage and not quiet:
-        print_usage(usage, latency_ms)
-    # end if
-
-    if output_format == "text":
-        rendered = response.content
-        console.print(rendered, markup=False, end="")
-    else:
-        payload = {
-            "provider": selected_provider.as_str(),
-            "model": selected_model,
-            "answer": response.content,
-            "latency_ms": latency_ms,
-            "request": {
-                "temperature": resolved_temperature,
-                "max_tokens": resolved_max_tokens,
-                "timeout_secs": timeout_secs,
-                "retries": retry_count,
-                "retry_delay_ms": retry_delay_ms,
-            },
-            "usage": json_usage(usage),
-        }
-        rendered = _json_line(payload)
-        console.print(rendered, markup=False)
-    # end if
-
-    if save is not None:
-        write_output(save, rendered + ("\n" if not rendered.endswith("\n") else ""))
-    # end if
+        for choice in response.choices:
+            if choice.message.reasoning_content:
+                console.print(f"<Thinking>\n{choice.message.reasoning_content}\n</Thinking>\n", markup=True)
+            # end if
+            rendered = choice.message.content
+            console.print(rendered, markup=True)
+        # end for
+    # end while
 # end def _run_chat
-
