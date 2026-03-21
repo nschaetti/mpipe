@@ -46,7 +46,7 @@ from mpipe.rchain.provider import (
     Provider,
     RequestError,
     Usage,
-    api_key_env,
+    api_key_env, StructuredOutputFormat,
 )
 
 
@@ -74,10 +74,11 @@ async def ask(prompt: str, model: str) -> str:
 
 
 async def ask_messages(
-    messages: list[ChatMessage],
-    model: str,
-    options: ChatOptions,
-    log_config: LogConfig | None = None,
+        messages: list[ChatMessage],
+        model: str,
+        options: ChatOptions,
+        structured_output: StructuredOutputFormat | None = None,
+        log_config: LogConfig | None = None,
 ) -> ChatResponse:
     """Ask messages.
 
@@ -88,6 +89,8 @@ async def ask_messages(
     model : str
         Argument value.
     options : ChatOptions
+        Argument value.
+    log_config : LogConfig | None
         Argument value.
 
     Returns

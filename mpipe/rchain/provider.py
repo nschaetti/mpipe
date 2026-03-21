@@ -16,45 +16,28 @@
 # You should have received a copy of the GNU General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-"""mpipe.rchain.provider module.
-
-Notes
------
-This module is part of the Python port of the `mpipe` project.
-"""
+"""Shared provider abstractions, request/response models, and errors."""
 from __future__ import annotations
 
 import base64
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Any, List
+from typing import Any, List, Dict
 
 from mpipe.logging import LogConfig
 
 
 class Provider(str, Enum):
-    """Provider.
-
-    Notes
-    -----
-    This class follows the same role and hierarchy as the Rust implementation.
-    """
+    """Supported LLM providers."""
     OPENAI = "openai"
     FIREWORKS = "fireworks"
 
     def as_str(self) -> str:
-        """As str.
+        """Return the provider value as a plain string.
 
-        Parameters
-        ----------
-        None
-            This callable does not accept explicit parameters.
-
-        Returns
-        -------
-        str
-            Returned value.
+        Returns:
+            The provider identifier string.
         """
         return self.value
     # end def as_str
@@ -62,17 +45,13 @@ class Provider(str, Enum):
 
 
 def endpoint(provider: Provider) -> str:
-    """Endpoint.
+    """Return the chat completions endpoint URL for a provider.
 
-    Parameters
-    ----------
-    provider : Provider
-        Argument value.
+    Args:
+        provider: Target provider.
 
-    Returns
-    -------
-    str
-        Returned value.
+    Returns:
+        HTTPS endpoint used for chat completion requests.
     """
     if provider == Provider.OPENAI:
         return "https://api.openai.com/v1/chat/completions"
@@ -82,17 +61,13 @@ def endpoint(provider: Provider) -> str:
 
 
 def api_key_env(provider: Provider) -> str:
-    """Api key env.
+    """Return the environment variable name containing a provider API key.
 
-    Parameters
-    ----------
-    provider : Provider
-        Argument value.
+    Args:
+        provider: Target provider.
 
-    Returns
-    -------
-    str
-        Returned value.
+    Returns:
+        Environment variable name for the provider's API key.
     """
     if provider == Provider.OPENAI:
         return "OPENAI_API_KEY"
@@ -102,17 +77,13 @@ def api_key_env(provider: Provider) -> str:
 
 
 def is_api_key_present(provider: Provider) -> bool:
-    """Is api key present.
+    """Check whether the provider API key environment variable is set.
 
-    Parameters
-    ----------
-    provider : Provider
-        Argument value.
+    Args:
+        provider: Target provider.
 
-    Returns
-    -------
-    bool
-        Returned value.
+    Returns:
+        ``True`` when a non-empty API key is present, else ``False``.
     """
     import os
 
@@ -123,71 +94,49 @@ def is_api_key_present(provider: Provider) -> bool:
 
 @dataclass(slots=True)
 class ImageUrl:
-    """Imageurl.
+    """Simple image URL wrapper used by typed payloads.
 
-    Notes
-    -----
-    This class follows the same role and hierarchy as the Rust implementation.
+    Attributes:
+        url: Image URL or data URL string.
     """
     url: str
 # end class ImageUrl
 
 
 class MessageContent:
-    """Messagecontent.
-
-    Notes
-    -----
-    This class follows the same role and hierarchy as the Rust implementation.
-    """
+    """Represents message content as plain text or multimodal parts."""
     def __init__(self, value: str | list[dict[str, Any]]) -> None:
-        """__init__.
+        """Initialize a content container.
 
-        Parameters
-        ----------
-        value : str | list[dict[str, Any]]
-            Argument value.
-
-        Returns
-        -------
-        None
-            Returned value.
+        Args:
+            value: Plain text content or a list of content parts.
         """
         self.value = value
     # end def __init__
 
     @classmethod
     def text(cls, text: str) -> "MessageContent":
-        """Text.
+        """Create text-only message content.
 
-        Parameters
-        ----------
-        text : str
-            Argument value.
+        Args:
+            text: Text content.
 
-        Returns
-        -------
-        'MessageContent'
-            Returned value.
+        Returns:
+            A ``MessageContent`` instance containing plain text.
         """
         return cls(text)
     # end def text
 
     @classmethod
     def with_image(cls, text: str, image_url: str) -> "MessageContent":
-        """With image.
+        """Create multimodal content with text and one image URL.
 
-        Parameters
-        ----------
-        text : str
-            Argument value.
-        image_url : str
-            Argument value.
+        Args:
+            text: Text part content.
+            image_url: URL or data URL for the image part.
 
-        Returns
-        -------
-        'MessageContent'
-            Returned value.
+        Returns:
+            A ``MessageContent`` instance with two structured parts.
         """
         return cls(
             [
@@ -198,17 +147,10 @@ class MessageContent:
     # end def with_image
 
     def is_empty(self) -> bool:
-        """Is empty.
+        """Return whether the content is empty.
 
-        Parameters
-        ----------
-        None
-            This callable does not accept explicit parameters.
-
-        Returns
-        -------
-        bool
-            Returned value.
+        Returns:
+            ``True`` if text is empty or part list is empty, else ``False``.
         """
         if isinstance(self.value, str):
             return self.value == ""
@@ -217,17 +159,10 @@ class MessageContent:
     # end def is_empty
 
     def text_len(self) -> int:
-        """Text len.
+        """Compute a text length approximation for logging and diagnostics.
 
-        Parameters
-        ----------
-        None
-            This callable does not accept explicit parameters.
-
-        Returns
-        -------
-        int
-            Returned value.
+        Returns:
+            Number of text characters, counting text parts only.
         """
         if isinstance(self.value, str):
             return len(self.value)
@@ -242,17 +177,10 @@ class MessageContent:
     # end def text_len
 
     def to_json(self) -> str | list[dict[str, Any]]:
-        """To json.
+        """Return the underlying JSON-compatible content payload.
 
-        Parameters
-        ----------
-        None
-            This callable does not accept explicit parameters.
-
-        Returns
-        -------
-        str | list[dict[str, Any]]
-            Returned value.
+        Returns:
+            Plain text or a list of multimodal content parts.
         """
         return self.value
     # end def to_json
@@ -261,12 +189,12 @@ class MessageContent:
 
 @dataclass(slots=True)
 class ChatMessage:
-    """
-    Chat message.
+    """Normalized chat message payload.
 
-    Notes
-    -----
-    This class follows the same role and hierarchy as the Rust implementation.
+    Attributes:
+        role: Message role (``system``, ``user``, or ``assistant``/others).
+        content: Message content object.
+        reasoning_content: Optional reasoning payload returned by some models.
     """
     role: str
     content: MessageContent
@@ -274,17 +202,13 @@ class ChatMessage:
 
     @classmethod
     def system(cls, content: MessageContent | str) -> "ChatMessage":
-        """System.
+        """Create a system-role message.
 
-        Parameters
-        ----------
-        content : MessageContent | str
-            Argument value.
+        Args:
+            content: Either plain text or prebuilt message content.
 
-        Returns
-        -------
-        'ChatMessage'
-            Returned value.
+        Returns:
+            A ``ChatMessage`` with role ``system``.
         """
         if isinstance(content, str):
             content = MessageContent.text(content)
@@ -294,17 +218,13 @@ class ChatMessage:
 
     @classmethod
     def user(cls, content: MessageContent | str) -> "ChatMessage":
-        """User.
+        """Create a user-role message.
 
-        Parameters
-        ----------
-        content : MessageContent | str
-            Argument value.
+        Args:
+            content: Either plain text or prebuilt message content.
 
-        Returns
-        -------
-        'ChatMessage'
-            Returned value.
+        Returns:
+            A ``ChatMessage`` with role ``user``.
         """
         if isinstance(content, str):
             content = MessageContent.text(content)
@@ -314,52 +234,36 @@ class ChatMessage:
 
     @classmethod
     def user_with_text(cls, text: str) -> "ChatMessage":
-        """User with text.
+        """Create a user-role message from text.
 
-        Parameters
-        ----------
-        text : str
-            Argument value.
+        Args:
+            text: User text message.
 
-        Returns
-        -------
-        'ChatMessage'
-            Returned value.
+        Returns:
+            A ``ChatMessage`` wrapping text content.
         """
         return cls.user(MessageContent.text(text))
     # end def user_with_text
 
     @classmethod
     def user_with_text_and_image(cls, text: str, image_url: str) -> "ChatMessage":
-        """User with text and image.
+        """Create a user-role multimodal message.
 
-        Parameters
-        ----------
-        text : str
-            Argument value.
-        image_url : str
-            Argument value.
+        Args:
+            text: User text.
+            image_url: URL or data URL of the image.
 
-        Returns
-        -------
-        'ChatMessage'
-            Returned value.
+        Returns:
+            A ``ChatMessage`` with text and image content parts.
         """
         return cls.user(MessageContent.with_image(text, image_url))
     # end def user_with_text_and_image
 
     def to_json(self) -> dict[str, Any]:
-        """To json.
+        """Serialize the chat message to a JSON-compatible dictionary.
 
-        Parameters
-        ----------
-        None
-            This callable does not accept explicit parameters.
-
-        Returns
-        -------
-        dict[str, Any]
-            Returned value.
+        Returns:
+            Message payload suitable for provider APIs.
         """
         return {"role": self.role, "content": self.content.to_json(), "reasoning_content": self.reasoning_content}
     # end def to_json
@@ -367,17 +271,16 @@ class ChatMessage:
 
 
 def resolve_image_url(input_value: str) -> str:
-    """Resolve image url.
+    """Resolve an input image reference to a URL or data URL.
 
-    Parameters
-    ----------
-    input_value : str
-        Argument value.
+    Args:
+        input_value: HTTP(S) URL or local file path.
 
-    Returns
-    -------
-    str
-        Returned value.
+    Returns:
+        The original HTTP(S) URL, or an encoded ``data:`` URL for local files.
+
+    Raises:
+        ValueError: If a local path does not exist or cannot be read.
     """
     trimmed = input_value.strip()
     if trimmed.startswith("http://") or trimmed.startswith("https://"):
@@ -409,12 +312,56 @@ def resolve_image_url(input_value: str) -> str:
 
 
 @dataclass(slots=True)
-class ChatOptions:
-    """Askoptions.
+class StructuredOutputFormat:
+    """Structured output configuration sent to a provider.
 
-    Notes
-    -----
-    This class follows the same role and hierarchy as the Rust implementation.
+    Attributes:
+        type: Provider-specific response format type.
+        name: Logical schema name.
+        schema_key: Key used to nest schema details in provider payloads.
+        schema: JSON schema dictionary.
+    """
+    type: str
+    name: str
+    schema_key: str | None = None
+    schema: dict[str, Any] | None = None
+# end class ResponseFormat
+
+
+class StructuredOutputFormatJSON(StructuredOutputFormat):
+    """JSON schema response format specialization."""
+
+    type: str = "json_schema"
+    schema_key: str = "json_schema"
+
+    def __init__(
+            self,
+            name: str,
+            json_schema: dict[str, Any]
+    ) -> None:
+        """Initialize JSON schema response format.
+
+        Args:
+            name: Logical schema name.
+            json_schema: JSON schema dictionary.
+        """
+        self.name = name
+        self.schema = json_schema
+    # end def __init__
+
+# end class StructuredOutputFormatJSON
+
+
+@dataclass(slots=True)
+class ChatOptions:
+    """Runtime options controlling provider chat requests.
+
+    Attributes:
+        temperature: Optional sampling temperature.
+        max_tokens: Optional generation token limit.
+        timeout_secs: Optional request timeout in seconds.
+        retries: Number of retry attempts for transient failures.
+        retry_delay_ms: Base delay in milliseconds between retries.
     """
     temperature: float | None = None
     max_tokens: int | None = None
@@ -426,11 +373,12 @@ class ChatOptions:
 
 @dataclass(slots=True)
 class Usage:
-    """Usage.
+    """Token usage metrics returned by providers.
 
-    Notes
-    -----
-    This class follows the same role and hierarchy as the Rust implementation.
+    Attributes:
+        prompt_tokens: Prompt token count.
+        completion_tokens: Completion token count.
+        total_tokens: Total token count.
     """
     prompt_tokens: int | None = None
     completion_tokens: int | None = None
@@ -440,7 +388,14 @@ class Usage:
 
 @dataclass(slots=True)
 class ResponseChoice:
-    """Responsechoice."""
+    """One completion candidate returned by a provider.
+
+    Attributes:
+        index: Choice index in provider response.
+        message: Message payload for this choice.
+        finish_reason: Optional stop reason returned by provider.
+        token_ids: Optional token IDs returned by some providers.
+    """
     index: int
     message: ChatMessage
     finish_reason: str | None = None
@@ -450,12 +405,15 @@ class ResponseChoice:
 
 @dataclass(slots=True)
 class ChatResponse:
-    """
-    Chat response.
+    """Normalized provider response containing one or more message choices.
 
-    Notes
-    -----
-    This class follows the same role and hierarchy as the Rust implementation.
+    Attributes:
+        response_id: Provider response identifier.
+        object: Provider response object type.
+        created: Creation timestamp.
+        model: Model ID used for generation.
+        choices: Completion choices returned by the provider.
+        usage: Optional token usage information.
     """
     response_id: str
     object: str
@@ -465,7 +423,13 @@ class ChatResponse:
     usage: Usage | None = None
 
     def get_message(self, index: int = 0) -> ChatMessage | None:
-        """Get message.
+        """Return the message at a specific choice index.
+
+        Args:
+            index: Choice index to retrieve.
+
+        Returns:
+            The selected message, or ``None`` when no choices exist.
         """
         if len(self.choices) == 0:
             return None
@@ -474,6 +438,11 @@ class ChatResponse:
     # end def get_message
 
     def n_messages(self) -> int:
+        """Return the number of completion choices in this response.
+
+        Returns:
+            Number of available choices.
+        """
         return len(self.choices)
     # end def n_messages
 
@@ -481,37 +450,19 @@ class ChatResponse:
 
 
 class ProviderError(Exception):
-    """Providererror.
-
-    Notes
-    -----
-    This class follows the same role and hierarchy as the Rust implementation.
-    """
+    """Base class for provider-related runtime errors."""
     pass
 # end class ProviderError
 
 
 class MissingApiKeyError(ProviderError):
-    """Missingapikeyerror.
-
-    Notes
-    -----
-    This class follows the same role and hierarchy as the Rust implementation.
-    """
+    """Raised when a required provider API key is missing."""
     def __init__(self, provider: Provider, key_env: str) -> None:
-        """__init__.
+        """Initialize a missing API key error.
 
-        Parameters
-        ----------
-        provider : Provider
-            Argument value.
-        key_env : str
-            Argument value.
-
-        Returns
-        -------
-        None
-            Returned value.
+        Args:
+            provider: Provider requiring the key.
+            key_env: Environment variable name expected to contain the key.
         """
         super().__init__(f"{key_env} is not set in the environment")
         self.provider = provider
@@ -521,26 +472,13 @@ class MissingApiKeyError(ProviderError):
 
 
 class RequestError(ProviderError):
-    """Requesterror.
-
-    Notes
-    -----
-    This class follows the same role and hierarchy as the Rust implementation.
-    """
+    """Raised when a transport-level request failure occurs."""
     def __init__(self, provider: Provider, source: Exception) -> None:
-        """__init__.
+        """Initialize a request error.
 
-        Parameters
-        ----------
-        provider : Provider
-            Argument value.
-        source : Exception
-            Argument value.
-
-        Returns
-        -------
-        None
-            Returned value.
+        Args:
+            provider: Provider that failed.
+            source: Original transport exception.
         """
         super().__init__(f"{provider.as_str()} request failed: {source}")
         self.provider = provider
@@ -550,28 +488,14 @@ class RequestError(ProviderError):
 
 
 class ApiError(ProviderError):
-    """Apierror.
-
-    Notes
-    -----
-    This class follows the same role and hierarchy as the Rust implementation.
-    """
+    """Raised when a provider returns a non-success API response."""
     def __init__(self, provider: Provider, status: int, body: str) -> None:
-        """__init__.
+        """Initialize an API error.
 
-        Parameters
-        ----------
-        provider : Provider
-            Argument value.
-        status : int
-            Argument value.
-        body : str
-            Argument value.
-
-        Returns
-        -------
-        None
-            Returned value.
+        Args:
+            provider: Provider that returned the error.
+            status: HTTP status code.
+            body: Response body text.
         """
         super().__init__(f"{provider.as_str()} API error {status}: {body}")
         self.provider = provider
@@ -582,24 +506,12 @@ class ApiError(ProviderError):
 
 
 class EmptyResponseError(ProviderError):
-    """Emptyresponseerror.
-
-    Notes
-    -----
-    This class follows the same role and hierarchy as the Rust implementation.
-    """
+    """Raised when a provider response contains no usable message content."""
     def __init__(self, provider: Provider) -> None:
-        """__init__.
+        """Initialize an empty response error.
 
-        Parameters
-        ----------
-        provider : Provider
-            Argument value.
-
-        Returns
-        -------
-        None
-            Returned value.
+        Args:
+            provider: Provider that returned an empty payload.
         """
         super().__init__(f"{provider.as_str()} response did not contain message content")
         self.provider = provider
@@ -612,32 +524,38 @@ async def ask(
         model: str,
         messages: list[ChatMessage],
         options: ChatOptions,
+        structured_output: StructuredOutputFormat | None = None,
         log_config: LogConfig | None = None,
 ) -> ChatResponse:
-    """Ask.
+    """Dispatch a chat request to the selected provider backend.
 
-    Parameters
-    ----------
-    provider : Provider
-        Argument value.
-    model : str
-        Argument value.
-    messages : list[ChatMessage]
-        Argument value.
-    options : ChatOptions
-        Argument value.
-    log_config : LogConfig
-        Argument value.
+    Args:
+        provider: Provider to query.
+        model: Model identifier.
+        messages: Chat history/messages.
+        options: Runtime request options.
+        structured_output: Optional structured output specification.
+        log_config: Optional logging verbosity configuration.
 
-    Returns
-    -------
-    ChatResponse
-        Returned value.
+    Returns:
+        A normalized ``ChatResponse`` object.
     """
     from mpipe.rchain import fireworks, openai
 
     if provider == Provider.OPENAI:
-        return await openai.ask_messages(messages, model, options, log_config)
+        return await openai.ask_messages(
+            messages=messages,
+            model=model,
+            options=options,
+            structured_output=structured_output,
+            log_config=log_config
+        )
     # end if
-    return await fireworks.ask_messages(messages, model, options, log_config)
+    return await fireworks.ask_messages(
+        messages=messages,
+        model=model,
+        options=options,
+        structured_output=structured_output,
+        log_config=log_config
+    )
 # end def ask

@@ -19,6 +19,13 @@
 
 from __future__ import annotations
 
+"""CLI commands for generating tool bundles from help text.
+
+This module exposes the ``mpipe tools`` command group and the
+``mpipe tools create`` workflow used to infer a structured tool definition and
+CLI mapping from raw ``--help`` output.
+"""
+
 import asyncio
 import dataclasses
 import json
@@ -48,254 +55,20 @@ from mpipe.commands.config import (
     resolve_show_usage,
     resolve_retry_delay,
 )
+from mpipe.utils import create_config
+
+from ._prompts import *
 
 
 __all__ = ["cli", "tools_group", "tool_create_command"]
 
-from mpipe.rchain.provider import ChatOptions, ChatMessage, Provider, ChatResponse, MessageContent
-
-TOOL_COMMAND_EXTRACT = """You are a CLI help-to-tool parser.
-
-Your task is to convert the raw output of a command's `--help` into a single STRICT JSON object with exactly two top-level keys:
-
-- "tool": a function-calling tool definition
-- "cli_map": a mapping used to reconstruct the CLI command
-
-Hard requirements:
-- Output JSON only.
-- No markdown.
-- No explanations.
-- No text before or after the JSON.
-- Use strict valid JSON, not Python dict syntax.
-- Use double quotes for all keys and strings.
-- Use true, false, null in JSON form.
-- Never invent arguments, options, enums, default values, or subcommands not clearly supported by the help text.
-- If something is unclear, use the most conservative interpretation.
-- If a type is unclear, use "string".
-
-You must return exactly one JSON object with this exact top-level structure:
-{
-  "tool": {
-    "type": "function",
-    "function": {
-      "name": "tool_name_in_snake_case",
-      "description": "short faithful description",
-      "strict": true,
-      "parameters": {
-        "type": "object",
-        "properties": {},
-        "required": [],
-        "additionalProperties": false
-      }
-    }
-  },
-  "cli_map": {}
-}
-No other top-level keys are allowed.
-
-The output must contain exactly two top-level keys: "tool" and "cli_map".
-
-"cli_map" must be a top-level sibling of "tool", not nested inside "tool" and not nested inside "tool.function".
-
-Invalid:
-{
-  "tool": {
-    ...,
-    "cli_map": {}
-  }
-}
-
-Valid:
-{
-  "tool": {},
-  "cli_map": {}
-}
-
-Important parsing rules:
-1. The "Usage:" line is the primary source of truth for positional arguments.
-2. The "Arguments:" section is secondary and may refine positional arguments.
-3. If "Arguments:" is empty or incomplete, still extract positional arguments from "Usage:".
-4. Tokens like [OPTION], [OPTIONS], [OPTION]... are structural markers and must NOT become parameters.
-5. Real placeholders like FILE, PATH, DIR, PATTERN, COMMAND, TARGET, QUERY, TEXT, etc. that appear in "Usage:" must become parameters.
-6. If a positional appears as [FILE], it is optional.
-7. If a positional appears as FILE, it is required.
-8. If a positional appears as [FILE]... or FILE..., it is repeatable and must become an array.
-9. Do not drop positional arguments just because their descriptions are missing.
-
-Rules for "tool":
-- "tool" must be suitable for function/tool calling.
-- Use readable JSON parameter names in snake_case.
-- Prefer long option names for parameter names.
-- If only a short option exists, derive a readable snake_case name from its description.
-- Positional arguments should also get readable snake_case names.
-- Flags become boolean.
-- Options with values become typed parameters.
-- Repeatable arguments/options become arrays.
-- Only include "enum" if the help explicitly gives a closed set of allowed values for that exact parameter.
-- Ignore --help and --version.
-
-Rules for "cli_map":
-For every parameter present in tool.function.parameters.properties, there must be exactly one entry in "cli_map" with the same key.
-
-Each cli_map entry must have:
-- "kind": one of "positional", "flag", "option"
-
-For positional arguments, use:
-{
-  "kind": "positional",
-  "position": 0,
-  "placeholder": "FILE",
-  "repeatable": true
-}
-
-For boolean flags, use:
-{
-  "kind": "flag",
-  "short": "-l",
-  "long": "--long"
-}
-
-For options with values, use:
-{
-  "kind": "option",
-  "short": "-T",
-  "long": "--tabsize",
-  "placeholder": "COLS",
-  "repeatable": false,
-  "value_mode": "separate"
-}
-
-Additional cli_map rules:
-- "position" is zero-based.
-- "placeholder" should preserve the original CLI placeholder when available, like FILE, PATH, COLS.
-- "repeatable" is required for positional and option entries when applicable.
-- "value_mode" should be:
-  - "equals" for forms like --color=<when>
-  - "separate" for forms like --ignore PATTERN or -T COLS
-  - "either" only if the help clearly supports both
-- Use null for missing short or long forms if needed.
-- Do not invent aliases.
-
-Type rules:
-- boolean for flags
-- integer for explicit integer placeholders like INT, N, NUM, COUNT, PORT, COLS
-- number for explicit decimal/numeric placeholders like FLOAT, DOUBLE, RATIO, SECONDS
-- string otherwise
-- array for repeatable values
-
-Example expectation:
-If usage is:
-Usage: ls [OPTION]... [FILE]...
-
-Then:
-- [OPTION]... does not become a parameter
-- [FILE]... becomes an optional array parameter such as "files"
-- cli_map["files"] must be:
-  {
-    "kind": "positional",
-    "position": 0,
-    "placeholder": "FILE",
-    "repeatable": true
-  }
-
-Now parse the following help text and output JSON only:
-
-{{HELP_TEXT}}
-"""
-
-
-TOOL_COMMAND_CREATE_ERROR_JSON = """Your previous response was invalid because it was not valid JSON.
-
-Parser error:
-{{PARSER_ERROR}}
-
-Fix your previous answer and return it again.
-
-Requirements:
-- Return JSON only.
-- No markdown.
-- No explanation.
-- No text before or after the JSON.
-- The output must be parseable by Python's json.loads().
-- Use double quotes for keys and strings.
-- Use JSON literals: true, false, null.
-- Keep the same intended content, but correct the formatting and structure.
-
-Remember: the output must contain exactly two top-level keys:
-- "tool"
-- "cli_map"
-"""
-
-
-TOOL_COMMAND_CREATE_MISSING_TOOL = """Your previous response was invalid because the top-level key "tool" is missing.
-
-Fix your previous answer and return it again.
-
-Requirements:
-- Return JSON only.
-- No markdown.
-- No explanation.
-- No text before or after the JSON.
-- The output must contain exactly two top-level keys:
-  - "tool"
-  - "cli_map"
-- "tool" must be a top-level object, not nested inside another key.
-- "cli_map" must remain a top-level sibling of "tool".
-
-Expected top-level structure:
-{
-  "tool": {
-    "type": "function",
-    "function": {
-      "name": "...",
-      "description": "...",
-      "strict": true,
-      "parameters": {
-        "type": "object",
-        "properties": {},
-        "required": [],
-        "additionalProperties": false
-      }
-    }
-  },
-  "cli_map": {}
-}
-"""
-
-
-TOOL_COMMAND_CREATE_MISSING_CLI_MAP = """Your previous response was invalid because the top-level key "cli_map" is missing.
-
-Fix your previous answer and return it again.
-
-Requirements:
-- Return JSON only.
-- No markdown.
-- No explanation.
-- No text before or after the JSON.
-- The output must contain exactly two top-level keys:
-  - "tool"
-  - "cli_map"
-- "cli_map" must be a top-level object, not nested inside "tool" and not nested inside "tool.function".
-- "tool" and "cli_map" must be siblings at the top level.
-
-Invalid example:
-{
-  "tool": {
-    "...": "...",
-    "cli_map": {}
-  }
-}
-
-Valid shape:
-{
-  "tool": { ... },
-  "cli_map": { ... }
-}
-"""
+from mpipe.rchain.provider import ChatOptions, ChatMessage, Provider, ChatResponse, MessageContent, StructuredOutputFormatJSON
+from ..rchain.tools import ToolBundle
 
 
 @click.group()
 def cli():
+    """Register the top-level CLI group for tool-related commands."""
     pass
 # end def cli
 
@@ -303,7 +76,7 @@ def cli():
 # Group tools
 @cli.group()
 def tools_group():
-    """Tools command group"""
+    """Register the ``tools`` command subgroup."""
     pass
 # end def tools
 
@@ -332,12 +105,6 @@ def tools_group():
     help="Sampling temperature in [0.0, 2.0].",
 )
 @click.option(
-    "--max-tokens",
-    type=int,
-    metavar="INT",
-    help="Maximum generated tokens (> 0).",
-)
-@click.option(
     "--timeout",
     type=int,
     metavar="SECONDS",
@@ -356,13 +123,6 @@ def tools_group():
     help="Base retry delay in milliseconds (> 0, exponential backoff).",
 )
 @click.option(
-    "--query-retries",
-    type=int,
-    default=4,
-    metavar="INT",
-    help="Number of retry attempts on transient failures.",
-)
-@click.option(
     "--tool-name",
     required=True,
     metavar="TOOLNAME",
@@ -374,15 +134,32 @@ def tools_group():
     metavar="TOOLDESC",
     help="Description of the tool to create.",
 )
+@click.option("--output", is_flag=True, help="Print tool bundle to stdout.")
 @click.option("--quiet", is_flag=True, help="Silence optional logs such as usage/verbose lines.")
 @click.option("--verbose", is_flag=True, help="Print resolved request settings to stderr.")
+@click.option(
+    "--config-path",
+    type=click.Path(path_type=Path),
+    default=Path.home() / ".config" / "mpipe",
+    help="Path to configuration directory."
+)
 def tool_create_command(**kwargs: Any) -> None:
-    """Tools command"""
+    """Run the ``tools create`` command entrypoint.
+
+    Args:
+        **kwargs: Parsed Click options forwarded to ``_run_tool_create``.
+    """
     _run_tool_create(**kwargs)
 # end def tools_command
 
 
 def _read_stdin() -> Optional[str]:
+    """Read non-interactive stdin content.
+
+    Returns:
+        The stripped stdin content when piped, or ``None`` when stdin is a TTY
+        or empty.
+    """
     if sys.stdin.isatty():
         return None
     else:
@@ -401,6 +178,14 @@ def _log_verbose(
     messages: list[ChatMessage],
     options: ChatOptions,
 ) -> None:
+    """Print verbose diagnostics for the outgoing provider request.
+
+    Args:
+        selected_provider: Provider selected for the request.
+        model: Model identifier sent to the provider.
+        messages: Outgoing chat messages.
+        options: Runtime chat options used for the request.
+    """
     total_chars = sum(message.content.text_len() for message in messages)
     err_console.print(
         "verbose: "
@@ -422,7 +207,7 @@ def _log_verbose(
 
 
 class _ToolValidationType(Enum):
-    """Enum for tool validation results."""
+    """Validation outcomes for model-generated tool bundles."""
     SUCCESS = "success"
     INVALID_JSON = "invalid_json"
     MISSING_TOOL = "missing_tool"
@@ -432,7 +217,12 @@ class _ToolValidationType(Enum):
 
 @dataclasses.dataclass(frozen=True)
 class _ToolValidationResult:
-    """Result of tool validation."""
+    """Validation result returned by ``_validate_response``.
+
+    Attributes:
+        result: Validation status enum value.
+        error_message: Optional parser or validation error details.
+    """
     result: _ToolValidationType
     error_message: Optional[str] = None
 # end class _ToolValidationResult
@@ -445,6 +235,10 @@ def _validate_response(
 
     Args:
         response_message: The response message from the LLM tool.
+
+    Returns:
+        A validation result describing whether required top-level keys are
+        present and JSON is syntactically valid.
     """
     # Response dict
     try:
@@ -465,27 +259,66 @@ def _validate_response(
 # end def _validate_response
 
 
+def _compose_prompt(
+        base_prompt: str,
+        replacements: dict[str, str],
+) -> str:
+    """Compose a prompt by replacing placeholder tokens.
+
+    Args:
+        base_prompt: Prompt template containing literal placeholders.
+        replacements: Mapping from placeholder token to replacement value.
+
+    Returns:
+        The prompt with all requested literal replacements applied.
+    """
+    for key, value in replacements.items():
+        base_prompt = base_prompt.replace(key, value)
+    # end for
+    return base_prompt
+# end def _compose_prompt
+
+
 def _run_tool_create(
         profile: str | None,
         provider_name: str | None,
         model: str | None,
         temperature: float | None,
-        max_tokens: int | None,
         timeout: int | None,
         retries: int | None,
         retry_delay: int | None,
-        query_retries: int | None,
         tool_name: str,
         tool_desc: str | None,
         quiet: bool,
         verbose: bool,
+        config_path: Path | None,
+        output: bool = False,
 ) -> None:
-    """Run tools command."""
+    """Generate and persist a tool bundle from CLI help text.
+
+    Args:
+        profile: Optional profile name used to resolve defaults.
+        provider_name: Optional provider override.
+        model: Optional model override.
+        temperature: Optional sampling temperature override.
+        timeout: Optional timeout override in seconds.
+        retries: Optional retry count override.
+        retry_delay: Optional retry delay override in milliseconds.
+        tool_name: Output tool bundle name.
+        tool_desc: Optional tool description/help text when not piped via stdin.
+        quiet: Whether to suppress informational output.
+        verbose: Whether to print verbose request diagnostics.
+        config_path: Base configuration path for output files.
+        output: Whether to print the generated bundle to stdout.
+    """
+    # Create config paths
+    tools_path = create_config(subdir="tools", path=config_path)
+
+    # Get config
     profile_cfg = resolve_profile(profile)
     selected_provider = resolve_provider(provider_name, profile_cfg)
     selected_model = resolve_model(model, profile_cfg)
     resolved_temperature = resolve_temperature(temperature, profile_cfg)
-    resolved_max_tokens = resolve_max_tokens(max_tokens, profile_cfg)
     timeout_secs = resolve_timeout(timeout, profile_cfg)
     retry_count = resolve_retries(retries, profile_cfg)
     retry_delay_ms = resolve_retry_delay(retry_delay, profile_cfg)
@@ -493,10 +326,15 @@ def _run_tool_create(
     # Chat options
     options = ChatOptions(
         temperature=resolved_temperature,
-        max_tokens=resolved_max_tokens,
         timeout_secs=timeout_secs,
         retries=retry_count,
         retry_delay_ms=retry_delay_ms,
+    )
+
+    # Structured output
+    structured_output = StructuredOutputFormatJSON(
+        name="ToolBundle",
+        json_schema=ToolBundle.json_schema()
     )
 
     # Tool description from stdin
@@ -507,10 +345,10 @@ def _run_tool_create(
     # end if
 
     # Compose prompt
-    main_prompt = TOOL_COMMAND_EXTRACT.replace("{{HELP_TEXT}}", tool_desc_in or tool_desc or "")
-
-    # Debug
-    # console.print(f"[bold green]Tool description:[/bold green]: {main_prompt}", markup=True)
+    main_prompt = _compose_prompt(
+        base_prompt=TOOL_COMMAND_EXTRACT,
+        replacements={"{{HELP_TEXT}}": tool_desc_in or tool_desc or ""}
+    )
 
     # Build messages
     messages: List[ChatMessage] = build_messages(None, main_prompt)
@@ -523,61 +361,33 @@ def _run_tool_create(
         )
     # end if
 
-    query_count = 0
-    query_success = False
+    start = time.perf_counter()
+    response: ChatResponse = asyncio.run(
+        provider.ask(
+            provider=selected_provider,
+            model=selected_model,
+            messages=messages,
+            structured_output=structured_output,
+            options=options
+        )
+    )
+    latency_ms = int((time.perf_counter() - start) * 1000)
 
-    while query_count < query_retries:
-        console.print(f"User: {messages[-1].content.value}")
-        console.print("")
+    # Get message
+    response_message: ChatMessage = response.get_message()
 
-        start = time.perf_counter()
-        response: ChatResponse = asyncio.run(provider.ask(selected_provider, selected_model, messages, options))
-        latency_ms = int((time.perf_counter() - start) * 1000)
+    # Get tool bundle
+    bundle = ToolBundle.model_validate_json(json_data=response_message.content.value)
 
-        # Get message
-        response_message = response.get_message()
+    # Save tool bundle
+    bundle_path = Path(tools_path / f"{tool_name}.json")
+    bundle_path.write_text(bundle.model_dump_json(indent=2))
 
-        if response_message is None:
-            raise ValueError("Model response is empty.")
-        # end if
+    if not quiet and not output:
+        console.print(f"[green bold]Tool bundle[/] saved to {bundle_path}", markup=True)
+    # end if
 
-        console.print(f"Model: {response_message.content.value}")
-        console.print(f"Reasoning: {response_message.reasoning_content}")
-        console.print("")
-
-        # Validate response
-        validation = _validate_response(response_message)
-
-        if validation.result == _ToolValidationType.SUCCESS:
-            query_success = True
-            break
-        elif validation.result == _ToolValidationType.INVALID_JSON:
-            console.print(f"[red bold]Error[/]: Model response is not valid JSON", markup=True)
-            response_error_message = TOOL_COMMAND_CREATE_ERROR_JSON.replace("{{PARSER_ERROR}}", validation.error_message or "")
-        elif validation.result == _ToolValidationType.MISSING_TOOL:
-            console.print(f"[red bold]Error[/]: Model response is missing the 'tool' key", markup=True)
-            response_error_message = TOOL_COMMAND_CREATE_MISSING_TOOL
-        elif validation.result == _ToolValidationType.MISSING_CLI_MAP:
-            console.print(f"[red bold]Error[/]: Model response is missing the 'cli_map' key", markup=True)
-            response_error_message = TOOL_COMMAND_CREATE_MISSING_CLI_MAP
-        else:
-            raise ValueError(f"Unknown validation result: {validation}")
-        # end if
-
-        # Add response to messages
-        if query_count < query_retries - 1:
-            messages.append(response.choices[0].message)
-            messages.append(ChatMessage.user(MessageContent.text(response_error_message)))
-        # end if
-
-        query_count += 1
-    # end while
-
-    print(f"Last response: {json.loads(response_message.content.value)}")
-
-    if query_success:
-        console.print("[green bold]Success:[/] Tool created successfully.", markup=True)
-    else:
-        console.print(f"[red bold]Error:[/] Failed to create tool after {query_retries} attempts.", markup=True)
+    if output:
+        console.print(bundle.model_dump_json(indent=2))
     # end if
 # end def _run_tools

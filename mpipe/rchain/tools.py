@@ -16,194 +16,199 @@
 # You should have received a copy of the GNU General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-"""mpipe.rchain.tools module.
-
-Notes
------
-This module is part of the Python port of the `mpipe` project.
-"""
+"""Data models for tool-calling payloads and CLI argument mappings."""
 from __future__ import annotations
 
 import base64
 import io
 import json
-from dataclasses import dataclass, field
-from enum import Enum
-from typing import Any
+from dataclasses import dataclass
+from typing import Any, Literal, Optional, Union
 
 from PIL import Image
+from pydantic import BaseModel
 
 
-class ToolParamType(str, Enum):
-    """Toolparamtype.
+class ToolFunctionParameters(BaseModel):
+    """JSON Schema object describing a tool function parameters object.
 
-    Notes
-    -----
-    This class follows the same role and hierarchy as the Rust implementation.
+    Attributes:
+        type: JSON schema type, always ``"object"``.
+        properties: Parameter schema map keyed by parameter name.
+        required: Names of required parameters.
+        additionalProperties: Whether unknown properties are accepted.
     """
-    INTEGER = "integer"
-    NUMBER = "number"
-    STRING = "string"
-    BOOLEAN = "boolean"
-    OBJECT = "object"
-    ARRAY = "array"
-# end class ToolParamType
+
+    type: Literal["object"] = "object"
+    properties: dict[str, Any]
+    required: list[str]
+    additionalProperties: bool
+# end class ToolFunctionParameters
 
 
-@dataclass(slots=True)
-class ToolParam:
-    """Toolparam.
+class ToolFunction(BaseModel):
+    """Function metadata exposed to model tool-calling APIs.
 
-    Notes
-    -----
-    This class follows the same role and hierarchy as the Rust implementation.
+    Attributes:
+        name: Tool function name.
+        description: Human-readable function description.
+        strict: Whether strict schema adherence is requested.
+        parameters: JSON schema definition for function parameters.
     """
-    name: str
-    kind: ToolParamType
-    required: bool
-    description: str | None = None
-# end class ToolParam
 
-
-@dataclass(slots=True)
-class ToolFunction:
-    """Toolfunction.
-
-    Notes
-    -----
-    This class follows the same role and hierarchy as the Rust implementation.
-    """
     name: str
     description: str
-    params: list[ToolParam] = field(default_factory=list)
-
-    def with_param(self, param: ToolParam) -> "ToolFunction":
-        """With param.
-
-        Parameters
-        ----------
-        param : ToolParam
-            Argument value.
-
-        Returns
-        -------
-        'ToolFunction'
-            Returned value.
-        """
-        self.params.append(param)
-        return self
-    # end def with_param
-
-    def to_schema(self) -> dict[str, Any]:
-        """To schema.
-
-        Parameters
-        ----------
-        None
-            This callable does not accept explicit parameters.
-
-        Returns
-        -------
-        dict[str, Any]
-            Returned value.
-        """
-        properties: dict[str, dict[str, str]] = {}
-        required: list[str] = []
-        for param in self.params:
-            param_def: dict[str, str] = {"type": param.kind.value}
-            if param.description is not None:
-                param_def["description"] = param.description
-            # end if
-            properties[param.name] = param_def
-            if param.required:
-                required.append(param.name)
-            # end if
-        # end for
-        schema: dict[str, Any] = {"type": "object", "properties": properties}
-        if required:
-            schema["required"] = required
-        # end if
-        return schema
-    # end def to_schema
+    strict: bool
+    parameters: ToolFunctionParameters
 # end class ToolFunction
 
 
-@dataclass(slots=True)
-class ToolDefinition:
-    """Tooldefinition.
+class ToolDef(BaseModel):
+    """Top-level tool wrapper used by chat completion APIs.
 
-    Notes
-    -----
-    This class follows the same role and hierarchy as the Rust implementation.
+    Attributes:
+        type: Tool kind, always ``"function"``.
+        function: Function metadata payload.
     """
+
+    type: Literal["function"] = "function"
     function: ToolFunction
+
+    def to_json(self) -> dict[str, Any]:
+        """Serialize this model to a JSON-compatible dictionary.
+
+        Returns:
+            A dictionary suitable for JSON encoding and API transport.
+        """
+        return self.model_dump(mode="json")
+    # end def to_json
+# end class ToolDef
+
+
+class CliMapPositional(BaseModel):
+    """CLI positional argument mapping for one tool parameter.
+
+    Attributes:
+        kind: Mapping type discriminator, always ``"positional"``.
+        position: Zero-based positional index in CLI order.
+        placeholder: Original CLI placeholder token.
+        repeatable: Whether this positional argument is repeatable.
+    """
+
+    kind: Literal["positional"] = "positional"
+    position: int
+    placeholder: str
+    repeatable: bool
+# end class CliMapPositional
+
+
+class CliMapFlag(BaseModel):
+    """CLI boolean flag mapping for one tool parameter.
+
+    Attributes:
+        kind: Mapping type discriminator, always ``"flag"``.
+        short: Optional short flag form (for example ``-v``).
+        long: Optional long flag form (for example ``--verbose``).
+    """
+
+    kind: Literal["flag"] = "flag"
+    short: Optional[str] = None
+    long: Optional[str] = None
+# end class CliMapFlag
+
+
+class CliMapOption(BaseModel):
+    """CLI option-with-value mapping for one tool parameter.
+
+    Attributes:
+        kind: Mapping type discriminator, always ``"option"``.
+        short: Optional short option form.
+        long: Optional long option form.
+        placeholder: Original value placeholder token.
+        repeatable: Whether the option can be provided multiple times.
+        value_mode: How values are passed (equals, separate, or either).
+    """
+
+    kind: Literal["option"] = "option"
+    short: Optional[str] = None
+    long: Optional[str] = None
+    placeholder: str
+    repeatable: bool
+    value_mode: Literal["equals", "separate", "either"]
+# end class CliMapOption
+
+
+CliMapEntry = Union[CliMapPositional, CliMapFlag, CliMapOption]
+
+
+class ToolBundle(BaseModel):
+    """Bundle containing both tool schema and CLI reconstruction metadata.
+
+    Attributes:
+        tool: Tool definition payload.
+        cli_map: Mapping from tool parameter names to CLI argument metadata.
+    """
+
+    tool: ToolDef
+    cli_map: dict[str, CliMapEntry]
+
+    def to_json(self) -> dict[str, Any]:
+        """Serialize this model to a JSON-compatible dictionary.
+
+        Returns:
+            A dictionary suitable for JSON encoding and file storage.
+        """
+        return self.model_dump(mode="json")
+    # end def to_json
+
+    @classmethod
+    def json_schema(cls) -> dict[str, Any]:
+        """Return the JSON Schema for the bundle model.
+
+        Returns:
+            The Pydantic-generated JSON Schema dictionary.
+        """
+        return cls.model_json_schema()
+    # end def json_schema
+# end class ToolBundle
+
+
+class ToolDefinition(ToolDef):
+    """Backward-compatible alias around ``ToolDef`` with legacy constructors."""
 
     @classmethod
     def from_function(cls, function: ToolFunction) -> "ToolDefinition":
-        """From function.
+        """Create a tool definition from a function payload.
 
-        Parameters
-        ----------
-        function : ToolFunction
-            Argument value.
+        Args:
+            function: Function metadata to wrap.
 
-        Returns
-        -------
-        'ToolDefinition'
-            Returned value.
+        Returns:
+            A ``ToolDefinition`` instance wrapping ``function``.
         """
         return cls(function=function)
     # end def from_function
-
-    def to_json(self) -> dict[str, Any]:
-        """To json.
-
-        Parameters
-        ----------
-        None
-            This callable does not accept explicit parameters.
-
-        Returns
-        -------
-        dict[str, Any]
-            Returned value.
-        """
-        return {
-            "type": "function",
-            "function": {
-                "name": self.function.name,
-                "description": self.function.description,
-                "parameters": self.function.to_schema(),
-            },
-        }
-    # end def to_json
 # end class ToolDefinition
 
 
 @dataclass(slots=True)
 class ToolCall:
-    """Toolcall.
+    """A tool call emitted by a model response.
 
-    Notes
-    -----
-    This class follows the same role and hierarchy as the Rust implementation.
+    Attributes:
+        id: Provider-supplied tool call identifier.
+        name: Tool/function name requested by the model.
+        args: Parsed or raw argument payload for the call.
     """
     id: str
     name: str
     args: Any
 
     def to_json(self) -> dict[str, Any]:
-        """To json.
+        """Serialize the tool call to provider-compatible JSON payload.
 
-        Parameters
-        ----------
-        None
-            This callable does not accept explicit parameters.
-
-        Returns
-        -------
-        dict[str, Any]
-            Returned value.
+        Returns:
+            A dictionary matching OpenAI-style tool call structure.
         """
         if isinstance(self.args, str):
             args_as_string = self.args
@@ -220,17 +225,13 @@ class ToolCall:
 
 
 def encode_image_base64_from_bytes(data: bytes) -> str:
-    """Encode image base64 from bytes.
+    """Convert arbitrary image bytes to PNG and return base64 text.
 
-    Parameters
-    ----------
-    data : bytes
-        Argument value.
+    Args:
+        data: Raw input image bytes.
 
-    Returns
-    -------
-    str
-        Returned value.
+    Returns:
+        Base64-encoded PNG bytes represented as an ASCII string.
     """
     image = Image.open(io.BytesIO(data))
     output = io.BytesIO()

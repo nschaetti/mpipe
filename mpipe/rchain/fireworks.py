@@ -16,12 +16,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-"""mpipe.rchain.fireworks module.
-
-Notes
------
-This module is part of the Python port of the `mpipe` project.
-"""
+"""Fireworks provider implementation for chat requests."""
 from __future__ import annotations
 
 import os
@@ -48,7 +43,7 @@ from mpipe.rchain.provider import (
     Provider,
     RequestError,
     Usage,
-    api_key_env, ResponseChoice, MessageContent,
+    api_key_env, ResponseChoice, MessageContent, StructuredOutputFormat,
 )
 
 
@@ -59,19 +54,14 @@ FIREWORKS_CHAT_COMPLETIONS_URL = "https://api.fireworks.ai/inference/v1/chat/com
 
 
 async def ask(prompt: str, model: str) -> str:
-    """Ask.
+    """Send a single user prompt to Fireworks and return the text response.
 
-    Parameters
-    ----------
-    prompt : str
-        Argument value.
-    model : str
-        Argument value.
+    Args:
+        prompt: User prompt text.
+        model: Fireworks model identifier.
 
-    Returns
-    -------
-    str
-        Returned value.
+    Returns:
+        Assistant text content for the first response choice.
     """
     response = await ask_messages([ChatMessage.user(prompt)], model, ChatOptions())
     return response.content
@@ -82,26 +72,26 @@ async def ask_messages(
         messages: list[ChatMessage],
         model: str,
         options: ChatOptions,
+        structured_output: StructuredOutputFormat = None,
         log_config: LogConfig | None = None,
 ) -> ChatResponse:
-    """
-    Ask messages.
+    """Send a chat-completions request to Fireworks.
 
-    Parameters
-    ----------
-    messages : list[ChatMessage]
-        Argument value.
-    model : str
-        Argument value.
-    options : ChatOptions
-        Argument value.
-    log_config : LogConfig
-        Argument value.
+    Args:
+        messages: Chat messages to send.
+        model: Fireworks model identifier.
+        options: Runtime request options.
+        structured_output: Optional structured-output schema configuration.
+        log_config: Optional logging configuration.
 
-    Returns
-    -------
-    ChatResponse
-        Returned value.
+    Returns:
+        A normalized chat response with choices and optional usage.
+
+    Raises:
+        MissingApiKeyError: If ``FIREWORKS_API_KEY`` is missing.
+        RequestError: If transport-level errors occur.
+        ApiError: If Fireworks returns a non-success API response.
+        EmptyResponseError: If no choices are returned.
     """
     provider = Provider.FIREWORKS
     key_env = api_key_env(provider)
@@ -119,6 +109,17 @@ async def ask_messages(
     # end if
     if options.max_tokens is not None:
         payload["max_tokens"] = options.max_tokens
+    # end if
+
+    # Structured output
+    if structured_output:
+        payload["response_format"] = {
+            "type": structured_output.type,
+            structured_output.schema_key: {
+                "name": structured_output.name,
+                "schema": structured_output.schema
+            }
+        }
     # end if
 
     client = requests.Session()
@@ -192,7 +193,14 @@ async def ask_messages(
 
 
 def _extract_response_info(body: Any) -> tuple[str, str, str, str]:
-    """Extract response info."""
+    """Extract top-level metadata fields from a Fireworks response body.
+
+    Args:
+        body: Parsed JSON response body.
+
+    Returns:
+        Tuple of ``(id, object, created, model)`` values.
+    """
     return (
         body.get("id"),
         body.get("object"),
@@ -203,7 +211,17 @@ def _extract_response_info(body: Any) -> tuple[str, str, str, str]:
 
 
 def _extract_message(choice: Dict[str, Any]) -> ResponseChoice:
-    """ extract message."""
+    """Convert one raw Fireworks choice into a normalized response choice.
+
+    Args:
+        choice: Raw choice dictionary from provider response.
+
+    Returns:
+        A normalized ``ResponseChoice`` instance.
+
+    Raises:
+        ValueError: If the choice does not contain a valid ``message`` object.
+    """
     if not isinstance(choice, dict):
         raise ValueError("Invalid choice")
     # end if
@@ -227,17 +245,14 @@ def _extract_message(choice: Dict[str, Any]) -> ResponseChoice:
 
 
 def _extract_content(body: Any, choice_ix: int) -> str:
-    """ extract content.
+    """Extract text content from a specific choice index.
 
-    Parameters
-    ----------
-    body : Any
-        Argument value.
+    Args:
+        body: Parsed JSON response body.
+        choice_ix: Choice index to read.
 
-    Returns
-    -------
-    str
-        Returned value.
+    Returns:
+        Choice text content, or an empty string when unavailable.
     """
     if not isinstance(body, dict):
         return ""
@@ -260,19 +275,14 @@ def _extract_content(body: Any, choice_ix: int) -> str:
 
 
 def _opt_int(data: dict[str, Any], key: str) -> int | None:
-    """ opt int.
+    """Read an optional integer value from a mapping.
 
-    Parameters
-    ----------
-    data : dict[str, Any]
-        Argument value.
-    key : str
-        Argument value.
+    Args:
+        data: Source dictionary.
+        key: Key to lookup.
 
-    Returns
-    -------
-    int | None
-        Returned value.
+    Returns:
+        Integer value when present and typed as ``int``, else ``None``.
     """
     value = data.get(key)
     return int(value) if isinstance(value, int) else None
