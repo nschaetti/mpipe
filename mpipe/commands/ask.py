@@ -62,7 +62,32 @@ from mpipe.commands.prompting import (
 from mpipe.config import ProfileConfig, load_profile
 from mpipe.console import console, err_console, print_json
 from mpipe.rchain import provider
-from mpipe.rchain.provider import AskOptions, ChatMessage, Provider
+from mpipe.rchain.provider import ChatOptions, ChatMessage, Provider
+
+
+ASK_HELP = """Send a single prompt to an LLM provider and print the answer.
+
+\b
+Prompt input priority:
+  1. --prompt-file
+  2. --prompt / -p
+  3. positional PROMPT
+  4. stdin (pipe)
+
+\b
+Configuration priority:
+  CLI option > environment variable > profile > built-in default
+"""
+
+
+ASK_HELP_EXAMPLES = """\b
+Examples:
+  mpipe ask --provider openai --model gpt-4o-mini "Explain retry backoff"
+  mpipe ask -p "Summarize this" --output json --show-usage
+  echo "Translate to French: hello" | mpipe ask --provider fireworks --model accounts/fireworks/models/kimi-k2-instruct-0905
+  mpipe ask --prompt-file prompt.txt --save answer.txt
+  mpipe ask --image ./diagram.png "Describe this architecture"
+"""
 
 
 @dataclass(slots=True)
@@ -80,29 +105,98 @@ class UsageData:
 # end class UsageData
 
 
-@click.command("ask")
-@click.option("--version", "show_version", is_flag=True)
-@click.option("--profile")
-@click.option("--provider", "provider_name", type=click.Choice(["openai", "fireworks"]))
-@click.option("--model")
-@click.option("--temperature", type=float)
-@click.option("--max-tokens", type=int)
-@click.option("--timeout", type=int)
-@click.option("--retries", type=int)
-@click.option("--retry-delay", type=int)
-@click.option("--output", type=click.Choice(["text", "json"]))
-@click.option("--json", "json_output", is_flag=True)
-@click.option("--show-usage", is_flag=True)
-@click.option("--quiet", is_flag=True)
-@click.option("--verbose", is_flag=True)
-@click.option("--dry-run", is_flag=True)
-@click.option("--fail-on-empty", is_flag=True)
-@click.option("--save", type=click.Path(path_type=Path))
-@click.option("--system")
-@click.option("--image")
-@click.option("-p", "--prompt")
-@click.option("--prompt-file", type=click.Path(exists=False, path_type=Path))
-@click.argument("input_prompt", required=False)
+@click.command("ask", help=ASK_HELP, epilog=ASK_HELP_EXAMPLES)
+@click.option("--version", "show_version", is_flag=True, help="Show version and exit.")
+@click.option(
+    "--profile",
+    metavar="NAME",
+    help="Load profile from config (e.g. provider, model, defaults).",
+)
+@click.option(
+    "--provider",
+    "provider_name",
+    type=click.Choice(["openai", "fireworks"]),
+    help="Provider to call. Falls back to MP_PROVIDER/profile/default.",
+)
+@click.option(
+    "--model",
+    metavar="MODEL",
+    help="Model ID (required unless set via MP_MODEL or profile).",
+)
+@click.option(
+    "--temperature",
+    type=float,
+    metavar="FLOAT",
+    help="Sampling temperature in [0.0, 2.0].",
+)
+@click.option(
+    "--max-tokens",
+    type=int,
+    metavar="INT",
+    help="Maximum generated tokens (> 0).",
+)
+@click.option(
+    "--timeout",
+    type=int,
+    metavar="SECONDS",
+    help="Request timeout in seconds (> 0).",
+)
+@click.option(
+    "--retries",
+    type=int,
+    metavar="INT",
+    help="Number of retry attempts on transient failures.",
+)
+@click.option(
+    "--retry-delay",
+    type=int,
+    metavar="MS",
+    help="Base retry delay in milliseconds (> 0, exponential backoff).",
+)
+@click.option(
+    "--output",
+    type=click.Choice(["text", "json"]),
+    help="Response output format.",
+)
+@click.option("--json", "json_output", is_flag=True, help="Shortcut for --output json.")
+@click.option("--show-usage", is_flag=True, help="Print token usage and latency to stderr.")
+@click.option("--quiet", is_flag=True, help="Silence optional logs such as usage/verbose lines.")
+@click.option("--verbose", is_flag=True, help="Print resolved request settings to stderr.")
+@click.option("--dry-run", is_flag=True, help="Do not call provider; print resolved request payload.")
+@click.option(
+    "--fail-on-empty",
+    is_flag=True,
+    help="Exit with an error if the model returns an empty response.",
+)
+@click.option(
+    "--save",
+    type=click.Path(path_type=Path),
+    metavar="PATH",
+    help="Write the final output to file.",
+)
+@click.option(
+    "--system",
+    metavar="TEXT",
+    help="System instruction prepended before the user prompt.",
+)
+@click.option(
+    "--image",
+    metavar="PATH_OR_URL",
+    help="Image path/URL for multimodal prompts.",
+)
+@click.option(
+    "-p",
+    "--prompt",
+    metavar="TEXT",
+    help="Prompt text. Overrides positional prompt and stdin.",
+)
+@click.option(
+    "--prompt-file",
+    type=click.Path(exists=False, path_type=Path),
+    metavar="PATH",
+    help="Read prompt text from file. Highest prompt priority.",
+)
+@click.argument("input_prompt", required=False, metavar="[PROMPT]")
 def ask_command(**kwargs: Any) -> None:
     """Ask command.
 
@@ -220,7 +314,7 @@ def _run_ask(
     resolved_show_usage = resolve_show_usage(show_usage, profile_cfg)
     resolved_system = resolve_system(system, profile_cfg)
 
-    options = AskOptions(
+    options = ChatOptions(
         temperature=resolved_temperature,
         max_tokens=resolved_max_tokens,
         timeout_secs=timeout_secs,
@@ -513,7 +607,7 @@ def log_verbose(
     show_usage: bool,
     prompt_source: PromptSource,
     messages: list[ChatMessage],
-    options: AskOptions,
+    options: ChatOptions,
 ) -> None:
     """Log verbose.
 
@@ -533,7 +627,7 @@ def log_verbose(
         Argument value.
     messages : list[ChatMessage]
         Argument value.
-    options : AskOptions
+    options : ChatOptions
         Argument value.
 
     Returns

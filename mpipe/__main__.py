@@ -39,6 +39,7 @@ from mpipe.commands.index import index_command
 from mpipe.commands.list import list_command
 from mpipe.commands.models import models_command
 from mpipe.commands.prompt import prompt_group
+from mpipe.commands.tools import tools_group
 
 
 ROOT_HELP_EXAMPLES = """Examples:
@@ -81,6 +82,7 @@ cli.add_command(embed_command)
 cli.add_command(download_command)
 cli.add_command(config_group)
 cli.add_command(completion_command)
+cli.add_command(tools_group)
 
 
 def main() -> None:

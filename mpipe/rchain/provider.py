@@ -409,7 +409,7 @@ def resolve_image_url(input_value: str) -> str:
 
 
 @dataclass(slots=True)
-class AskOptions:
+class ChatOptions:
     """Askoptions.
 
     Notes
@@ -463,6 +463,20 @@ class ChatResponse:
     model: str
     choices: List[ResponseChoice]
     usage: Usage | None = None
+
+    def get_message(self, index: int = 0) -> ChatMessage | None:
+        """Get message.
+        """
+        if len(self.choices) == 0:
+            return None
+        # end if
+        return self.choices[index].message
+    # end def get_message
+
+    def n_messages(self) -> int:
+        return len(self.choices)
+    # end def n_messages
+
 # end class ChatResponse
 
 
@@ -597,7 +611,7 @@ async def ask(
         provider: Provider,
         model: str,
         messages: list[ChatMessage],
-        options: AskOptions,
+        options: ChatOptions,
         log_config: LogConfig | None = None,
 ) -> ChatResponse:
     """Ask.
@@ -610,7 +624,7 @@ async def ask(
         Argument value.
     messages : list[ChatMessage]
         Argument value.
-    options : AskOptions
+    options : ChatOptions
         Argument value.
     log_config : LogConfig
         Argument value.

@@ -1,3 +1,5 @@
+
+
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -8,7 +10,7 @@ use clap::{Args, ValueEnum};
 use serde::Serialize;
 
 use crate::commands::prompting::{
-    PromptInput, PromptSource, build_messages, build_messages_with_image, compose_prompt,
+    PromptInput, PromptSource, build_messages, build_messages_with_image,
     non_empty, resolve_prompt,
 };
 use crate::config::{self, ProfileConfig};
@@ -70,18 +72,8 @@ pub struct AskArgs {
     #[arg(long)]
     system: Option<String>,
 
-    /// Prefix added to the beginning of the prompt.
-    #[arg(long)]
-    preprompt: Option<String>,
-
-    #[arg(long = "preprompt-file")]
-    preprompt_file: Option<PathBuf>,
-
-    #[arg(long)]
-    postprompt: Option<String>,
-
-    #[arg(long = "postprompt-file")]
-    postprompt_file: Option<PathBuf>,
+    #[arg(long = "system-file")]
+    system_file: Option<PathBuf>,
 
     #[arg(long)]
     image: Option<String>,
@@ -198,22 +190,8 @@ pub async fn run(cli: AskArgs) -> Result<(), String> {
         retry_delay_ms,
     };
 
-    let preprompt = resolve_optional_segment(
-        cli.preprompt,
-        cli.preprompt_file.as_deref(),
-        "--preprompt-file",
-    )?;
     let main_prompt = resolve_main_prompt(cli.prompt, cli.prompt_file.as_deref())?;
-    let postprompt = resolve_optional_segment(
-        cli.postprompt,
-        cli.postprompt_file.as_deref(),
-        "--postprompt-file",
-    )?;
-    let prompt = compose_prompt(
-        preprompt.as_deref(),
-        &main_prompt.text,
-        postprompt.as_deref(),
-    );
+    let prompt = &main_prompt.text;
 
     let messages = if let Some(image_input) = &cli.image {
         let resolved_url = provider::resolve_image_url(image_input)
@@ -366,17 +344,6 @@ fn write_output(path: &Path, content: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn resolve_optional_segment(
-    cli_value: Option<String>,
-    file_path: Option<&Path>,
-    option_name: &str,
-) -> Result<Option<String>, String> {
-    if let Some(path) = file_path {
-        return read_text_file(path, option_name).map(Some);
-    }
-
-    Ok(cli_value)
-}
 
 fn resolve_main_prompt(
     cli_prompt: Option<String>,

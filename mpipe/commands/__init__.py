@@ -32,6 +32,8 @@ __all__ = [
     "models_command",
     "prompt_render_command",
     "prompt_group",
+    "tool_create_command",
+    "tools_group"
 ]
 
 from .agent import agent_command
@@ -45,3 +47,4 @@ from .index import index_command
 from .list import list_command
 from .models import models_command
 from .prompt import prompt_render_command, prompt_group
+from .tools import tool_create_command, tools_group

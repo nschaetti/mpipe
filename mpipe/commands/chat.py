@@ -57,7 +57,7 @@ from mpipe.commands.prompting import (
 from mpipe.config import ProfileConfig, load_profile
 from mpipe.console import console, err_console, print_json
 from mpipe.rchain import provider
-from mpipe.rchain.provider import AskOptions, ChatMessage, Provider, MessageContent
+from mpipe.rchain.provider import ChatOptions, ChatMessage, Provider, MessageContent, ChatResponse
 
 
 @click.command("chat")
@@ -143,7 +143,7 @@ def _run_chat(
     )
 
     # Ask options
-    options = AskOptions(
+    options = ChatOptions(
         temperature=resolved_temperature,
         max_tokens=resolved_max_tokens,
         timeout_secs=timeout_secs,
@@ -166,7 +166,7 @@ def _run_chat(
         messages.append(ChatMessage(role="user", content=MessageContent.text(chat_input)))
 
         # Send message to LLM
-        response = asyncio.run(provider.ask(selected_provider, selected_model, messages, options, log_options))
+        response: ChatResponse = asyncio.run(provider.ask(selected_provider, selected_model, messages, options, log_options))
 
         if log_options.level.value >= LogLevels.DEBUG.value:
             console.print(f"Fireworks API response: {response}")

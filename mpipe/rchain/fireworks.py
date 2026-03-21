@@ -40,7 +40,7 @@ from mpipe.rchain.chat_runtime import (
 )
 from mpipe.rchain.provider import (
     ApiError,
-    AskOptions,
+    ChatOptions,
     ChatResponse,
     ChatMessage,
     EmptyResponseError,
@@ -48,7 +48,7 @@ from mpipe.rchain.provider import (
     Provider,
     RequestError,
     Usage,
-    api_key_env, ResponseChoice,
+    api_key_env, ResponseChoice, MessageContent,
 )
 
 
@@ -73,7 +73,7 @@ async def ask(prompt: str, model: str) -> str:
     str
         Returned value.
     """
-    response = await ask_messages([ChatMessage.user(prompt)], model, AskOptions())
+    response = await ask_messages([ChatMessage.user(prompt)], model, ChatOptions())
     return response.content
 # end def ask
 
@@ -81,7 +81,7 @@ async def ask(prompt: str, model: str) -> str:
 async def ask_messages(
         messages: list[ChatMessage],
         model: str,
-        options: AskOptions,
+        options: ChatOptions,
         log_config: LogConfig | None = None,
 ) -> ChatResponse:
     """
@@ -93,7 +93,7 @@ async def ask_messages(
         Argument value.
     model : str
         Argument value.
-    options : AskOptions
+    options : ChatOptions
         Argument value.
     log_config : LogConfig
         Argument value.
@@ -214,7 +214,7 @@ def _extract_message(choice: Dict[str, Any]) -> ResponseChoice:
 
     response_message = ChatMessage(
         role=choice.get("message").get("role"),
-        content=choice.get("message").get("content"),
+        content=MessageContent(choice.get("message").get("content")),
         reasoning_content=choice.get("message").get("reasoning_content", None)
     )
 

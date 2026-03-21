@@ -35,7 +35,7 @@ from mpipe.commands.chroma import ChromaConnectArgs, connect
 from mpipe.commands.prompting import resolve_prompt
 from mpipe.console import console, print_json
 from mpipe.rchain.embeddings import EmbeddingProvider, embed_chunks_with_provider
-from mpipe.rchain.provider import AskOptions, ChatMessage, Provider, ask as provider_ask
+from mpipe.rchain.provider import ChatOptions, ChatMessage, Provider, ask as provider_ask
 
 
 DEFAULT_COLLECTION = "mpipe"
@@ -195,7 +195,7 @@ def _run_grep(
             selected_provider,
             selected_model,
             messages,
-            AskOptions(
+            ChatOptions(
                 temperature=temperature,
                 max_tokens=max_tokens,
                 timeout_secs=timeout,

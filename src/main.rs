@@ -4,6 +4,8 @@ use std::process;
 use clap::{CommandFactory, Parser, Subcommand, ValueEnum};
 use clap_complete::{generate, shells};
 
+use owo_colors::OwoColorize;
+
 use mpipe::commands::ask::{self, AskArgs};
 use mpipe::commands::agent::{self, AgentArgs};
 use mpipe::commands::config::{self, ConfigArgs};
@@ -14,6 +16,7 @@ use mpipe::commands::index::{self, IndexArgs};
 use mpipe::commands::list::{self, ListArgs};
 use mpipe::commands::models::{self, ModelsArgs};
 use mpipe::commands::prompt::{self, PromptArgs};
+use mpipe::commands::tools::{self, ToolArgs};
 
 const ROOT_HELP_EXAMPLES: &str = "Examples:\n\
   mpipe ask --provider fireworks --model accounts/fireworks/models/kimi-k2-instruct-0905 \"2+2?\"\n\
@@ -66,6 +69,8 @@ enum Commands {
         #[arg(value_enum)]
         shell: CompletionShell,
     },
+    #[command(about = "Tool management")]
+    Tool(ToolsArgs),
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]

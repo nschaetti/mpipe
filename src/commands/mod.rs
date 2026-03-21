@@ -12,3 +12,4 @@ pub mod list;
 pub mod models;
 pub mod prompt;
 pub mod prompting;
+mod tools;
